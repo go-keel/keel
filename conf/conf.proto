@@ -1,0 +1,313 @@
+syntax = "proto3";
+package keel.conf;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/go-keel/keel/conf;conf";
+
+// Constraints on config values are written on the fields (protovalidate rules); kconfig.NewConfig validates once
+// after loading, and the process does not start if anything fails. Rules only judge "is this value, this section,
+// valid on its own": 0 and omission keep the "use the default" meaning; what they block are settings upstream would
+// silently fall back to a default, silently clamp or silently drop, and the reason cites the upstream source.
+// "Does the section a component needs exist" and "do the provider and config match" are assembly, checked by the
+// component constructors.
+message Config {
+  App app = 1 [(buf.validate.field).required = true]; // Application configuration
+  Logger logger = 2; // Logger configuration
+  OTEL otel = 3; // OpenTelemetry configuration
+  Server server = 4; // Server configuration
+  map<string, Client> client = 5; // Service Client configuration
+  map<string, Database> database = 6; // Database configuration
+  map<string, Redis> redis = 7; // Redis configuration
+  map<string, NATS> nats = 8; // NATS JetStream configuration
+  map<string, Asynq> asynq = 9; // Asynq task queue configuration
+}
+
+message App {
+  string domain = 1; // Business domain name, e.g., keel
+  string id = 2;
+  string name = 3 [(buf.validate.field).required = true];
+  string version = 4;
+  // Snowflake ID node number [0, 1023]; -1 means allocated automatically via Redis (ksnowflake.NewAuto).
+  int64 node_id = 5 [(buf.validate.field).int64 = {
+    gte: -1
+    lte: 1023
+  }];
+  // The stop budget of each server, default 20 seconds: kratos derives the same deadline for every server's Stop(ctx)
+  // from it, the single source of "how long to wait". It covers only server.Stop: the cleanup that closes NATS
+  // connections runs after app.Run() returns, is not bound by this deadline, and has its own 10-second limit (counted
+  // once per NATS client, added up in sequence). Set the deployment grace period to stop_timeout + the connection
+  // cleanup limit (default 20+10=30 seconds, matching K8s's default terminationGracePeriodSeconds), not this number
+  // alone. A negative value counts as "written but not in effect" (no deadline, waiting forever) and fails startup.
+  google.protobuf.Duration stop_timeout = 6 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+}
+
+message Logger {
+  // Minimum level written, default info (also when empty). Lowercase only, so a typo fails startup instead of
+  // silently logging at the default.
+  string level = 1 [(buf.validate.field).string = {
+    in: [
+      "",
+      "debug",
+      "info",
+      "warn",
+      "error"
+    ]
+  }];
+  // Minimum level whose records carry a stack trace, default error (also when empty). Same values as level.
+  string stacktrace_level = 2 [(buf.validate.field).string = {
+    in: [
+      "",
+      "debug",
+      "info",
+      "warn",
+      "error"
+    ]
+  }];
+  bool console = 3;
+  // Encoding of the console output: text (the default, also when empty) or json. It only affects the console output;
+  // the OTel output is sent in OTLP's structure and is unrelated.
+  string format = 4 [(buf.validate.field).string = {
+    in: [
+      "",
+      "text",
+      "json"
+    ]
+  }];
+}
+
+message OTEL {
+  // Silently falling back to the SDK default endpoint (localhost:4317) is not allowed; config errors should surface explicitly.
+  option (buf.validate.message).cel = {
+    id: "otel.endpoint_required"
+    message: "endpoint is required when enabled is true"
+    expression: "!this.enabled || this.endpoint != ''"
+  };
+
+  bool enabled = 1;
+  string endpoint = 2; // OTLP gRPC endpoint; required when enabled=true
+  bool insecure = 3;
+  // Sampling ratio (0, 1], default 1.0 (sample everything). proto3 zero-value ambiguity: 0 is treated as "unset" and
+  // also falls back to 1.0; to stop sampling, turn off enabled rather than setting 0. Below 0 or above 1 is a mistake:
+  // sdktrace.TraceIDRatioBased clamps them to 0 (never sample) and 1 (sample everything) respectively, both "written
+  // but not in effect".
+  double trace_sample_ratio = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  // Metric export interval, default 10s.
+  google.protobuf.Duration metric_interval = 5 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  // Batch size and interval for log export, default 512 / 1s. Together with the hard-coded queue limit (4096 records)
+  // they form one set: when the queue is full the oldest logs are dropped.
+  int32 log_batch_size = 6 [(buf.validate.field).int32.gte = 0];
+  google.protobuf.Duration log_batch_interval = 7 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+}
+
+message Server {
+  message HTTP {
+    string addr = 1 [(buf.validate.field).required = true];
+    // When omitted, the kratos default is used; 0 means no timeout. A negative value equals 0 in kratos (it only
+    // honours timeout > 0), so it is written but not in effect.
+    google.protobuf.Duration timeout = 2 [(buf.validate.field).duration = {
+      gte: {}
+    }];
+    Auth auth = 3; // authentication config of this HTTP server
+    // The rule this HTTP server uses to get the client IP (metadata.GetRemoteIP); omitted = trust only the local host.
+    ClientIP client_ip = 4;
+  }
+  // The client IP has only two sources: the party actually connected (the connection peer) and X-Forwarded-For.
+  // X-Forwarded-For is read only when the peer is on the trusted list, taking the first entry from the right that is
+  // not on the list; X-Real-IP, CDN headers and RFC 7239 Forwarded are never read. See docs/metadata.md.
+  message ClientIP {
+    option (buf.validate.message).cel = {
+      id: "client_ip.exclusive"
+      message: "trusted_proxies and ignore_forwarded_for are mutually exclusive: ignore_forwarded_for trusts no proxy at all"
+      expression: "!this.ignore_forwarded_for || size(this.trusted_proxies) == 0"
+    };
+
+    // Proxies you control: a single address (10.0.0.5) or a prefix (10.0.0.0/8, host bits must be 0).
+    // Omitted = trust only the local host (127.0.0.0/8 and ::1); when written, what is written wins and replaces the
+    // default rather than merging, so to keep trusting the local host write it too. Addresses with a zone
+    // (fe80::1%eth0) are not usable by a client or proxy and are rejected: protovalidate's isIp accepts a zone
+    // (buf.build/go/protovalidate v1.4.0 internal/rules/ipv6.go:93), hence the extra contains('%') check.
+    repeated string trusted_proxies = 1 [(buf.validate.field).repeated.items.cel = {
+      id: "client_ip.trusted_proxy"
+      message: "must be an IP address or a network with host bits zero, e.g. 10.0.0.5 or 10.0.0.0/8"
+      expression: "!this.contains('%') && (this.isIp() || this.isIpPrefix(true))"
+    }];
+    // true = trust nobody: do not read X-Forwarded-For, use only the connection peer. Use it when the local host runs
+    // tools that forward connections verbatim (socat, frp tcp, ssh reverse tunnels): then "connected from the local
+    // host" does not mean it passed through a proxy that overwrites X-Forwarded-For. Mutually exclusive with a
+    // non-empty trusted_proxies.
+    bool ignore_forwarded_for = 2;
+  }
+  message GRPC {
+    string addr = 1 [(buf.validate.field).required = true];
+    // Same as HTTP.timeout.
+    google.protobuf.Duration timeout = 2 [(buf.validate.field).duration = {
+      gte: {}
+    }];
+    Auth auth = 3; // authentication config of this gRPC server
+  }
+  message Auth {
+    option (buf.validate.message).cel = {
+      id: "auth.jwt_secret_required"
+      message: "jwt_secret is required when algorithm is HS256"
+      expression: "!this.enabled || this.algorithm != 'HS256' || this.jwt_secret != ''"
+    };
+    option (buf.validate.message).cel = {
+      id: "auth.jwt_public_key_file_required"
+      message: "jwt_public_key_file is required when algorithm is RS256"
+      expression: "!this.enabled || !(this.algorithm in ['', 'RS256']) || this.jwt_public_key_file != ''"
+    };
+
+    bool enabled = 1;
+    // JWT algorithm: "RS256" (default) or "HS256"
+    string algorithm = 2 [(buf.validate.field).string = {
+      in: [
+        "",
+        "RS256",
+        "HS256"
+      ]
+    }];
+    string jwt_public_key_file = 3; // for RS256: path of the public key file
+    string jwt_secret = 4; // for HS256: the secret (never commit it; write it in config.dev.yaml for local development, inject config.yaml from deployment in production)
+    // When non-empty, fall back to reading the cookie of this name when the Authorization header is missing.
+    // For browsers that keep the token in an httpOnly cookie: JS cannot read the token, so XSS cannot steal it; the
+    // cost is that the browser sends the cookie automatically, so the issuer must set SameSite (Strict/Lax) to block
+    // CSRF. This middleware does not issue tokens, it only extracts them.
+    // Empty = accept only the Authorization header (the default; pure API services are unaffected).
+    string cookie_name = 5;
+  }
+  map<string, HTTP> http = 1; // key: "default", "public", "admin" and so on
+  map<string, GRPC> grpc = 2; // key: "default"
+}
+
+message Client {
+  // Service address: a service discovery address or a direct one, such as dns:///user-svc:9090. Required: the
+  // connection is lazy, so an empty value would not fail until the first RPC.
+  string endpoint = 1 [(buf.validate.field).required = true];
+  // Default per-RPC timeout. A negative value equals unset in kratos (it only honours timeout > 0), so it is written but not in effect.
+  google.protobuf.Duration timeout = 2 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+}
+
+message Database {
+  // Keel is bound to gorm; the only dialects are mysql and postgres (pgx is an alias of postgres).
+  string driver = 1 [(buf.validate.field).string = {
+    in: [
+      "mysql",
+      "postgres",
+      "pgx"
+    ]
+  }];
+  string source = 2 [(buf.validate.field).required = true];
+  // Connection pool limits, default 100 / 10. 0 and omission use the default; negative values are treated as unset.
+  int32 max_open = 3 [(buf.validate.field).int32.gte = 0]; // Maximum number of open connections to the database
+  int32 max_idle = 4 [(buf.validate.field).int32.gte = 0]; // Maximum number of idle connections to the database
+  // Maximum lifetime of a connection, default 5 minutes. 0 and omission use the default; negative values fail startup.
+  google.protobuf.Duration max_life_time = 5 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  // Slow query threshold: SQL taking longer logs at WARN. Default 200ms, the default of gorm's
+  // logger.Config.SlowThreshold. 0 and omission use the default; negative values fail startup. To stop logging slow
+  // queries, set log_level to "error" or "silent".
+  google.protobuf.Duration slow_threshold = 6 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  // SQL log level "silent" | "error" | "warn" | "info", default warn (also when empty). This is gorm's own level
+  // mechanism (logger.Config.LogLevel), deciding which SQL events reach slog; the slog handler's logger.level is the
+  // second gate. Setting info logs every SQL statement.
+  string log_level = 7 [(buf.validate.field).string = {
+    in: [
+      "",
+      "silent",
+      "error",
+      "warn",
+      "info"
+    ]
+  }];
+}
+
+message Redis {
+  option (buf.validate.message).cel = {
+    id: "redis.sentinel_password_requires_master_name"
+    message: "sentinel_password is only used in sentinel mode; set master_name too"
+    expression: "this.sentinel_password == '' || this.master_name != ''"
+  };
+
+  // At least one address: go-redis silently falls back to 127.0.0.1:6379 for an empty list (v9.22.0 universal.go:182).
+  // The mode is decided by go-redis's UniversalClient from the config: with master_name it is sentinel mode and addr
+  // holds the sentinel addresses; otherwise one address is standalone and several are a cluster.
+  repeated string addr = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    items: {
+      string: {min_len: 1}
+    }
+  }];
+  string username = 2;
+  string password = 3;
+  int32 db = 4 [(buf.validate.field).int32.gte = 0];
+  // Read and write timeouts, default 3 seconds (the go-redis default). 0 and omission use the default; negative values
+  // fail startup.
+  google.protobuf.Duration read_timeout = 5 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  google.protobuf.Duration write_timeout = 6 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  string master_name = 7; // master name in sentinel mode; empty means no sentinel
+  // The sentinel nodes' own password, separate from the data nodes' password; used only in sentinel mode.
+  string sentinel_password = 8;
+  // Connection pool size (per node); 0 uses the go-redis default (10 × GOMAXPROCS).
+  int32 pool_size = 9 [(buf.validate.field).int32.gte = 0];
+}
+
+message NATS {
+  string url = 1 [(buf.validate.field).required = true]; // connection URL, such as nats://nats:4222
+  string creds_file = 2; // path of the nkey/JWT credentials file; empty means no authentication
+  // Retention of the streams knats creates, default 7 days. It decides how long events can be looked back on, and
+  // how long a dead letter's original message can still be replayed. It applies only to streams knats creates itself.
+  google.protobuf.Duration stream_max_age = 3 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+  // Replica count of the streams knats creates, default 1. In a cluster deployment set it to match the cluster; too
+  // small loses data when a broker fails. It applies only to streams knats creates itself: existing streams are taken
+  // over as they are, not overridden by this config.
+  int32 stream_replicas = 4 [(buf.validate.field).int32.gte = 0];
+  // Retention of the DEAD_LETTER stream knats creates for give-up advisories, default 30 days. Only applies when knats
+  // creates that stream; an existing one is adopted as is.
+  google.protobuf.Duration dead_letter_max_age = 5 [(buf.validate.field).duration = {
+    gte: {}
+  }];
+}
+
+message Asynq {
+  // Worker concurrency. 0 and omission use the asynq default (NumCPU); asynq also silently falls back to the default for negative values.
+  int32 concurrency = 1 [(buf.validate.field).int32.gte = 0];
+  // Queue weights, such as {"critical": 6, "default": 3, "low": 1}. Queue names must not be blank and weights must be
+  // positive: asynq silently filters out empty names and non-positive weights when building the server (v0.26.0
+  // server.go:469), and if all are filtered it falls back to listening only to default; the config is written but
+  // not in effect, the service looks healthy while tasks pile up.
+  map<string, int32> queues = 2 [(buf.validate.field).map = {
+    keys: {
+      cel: {
+        id: "asynq.queue_name_blank"
+        message: "queue name must not be blank"
+        expression: "this.matches('\\\\S')"
+      }
+    }
+    values: {
+      int32: {gt: 0}
+    }
+  }];
+  bool strict_priority = 3; // Strict priority mode
+}

@@ -1,0 +1,29 @@
+# Build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+*.test
+*.out
+
+# Dependencies and workspace (go.work lives in the parent workspace directory, not in this repo)
+vendor/
+go.work
+go.work.sum
+
+# Local files
+*.cert
+*.key
+*.log
+
+# OS and editors
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+.claude/

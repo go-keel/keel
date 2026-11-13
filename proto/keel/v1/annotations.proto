@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package keel.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/go-keel/keel/proto/keel/v1;keelpb";
+
+// Extension number ranges (protobuf reserves 50000–99999 for in-organisation use):
+//   reserved for the Keel framework: 50001–51000
+//   services using Keel carve their own ranges (from 51001, 1000 numbers per service), declared in their own protos;
+//   Keel does not enumerate them.
+//
+// Used by Keel:
+//   50001  keel.v1.auth    (MethodOptions)
+//   50002  keel.v1.redact  (FieldOptions)
+//   50003  keel.v1.decimal (buf.validate.StringRules, defined in rules.proto)
+//
+// Numbers are assigned in sequence and not reused across different extendees: protobuf allows MethodOptions and
+// FieldOptions to each use 50001, but two 50001s in the ledger would only make the next person adding an extension
+// guess.
+//
+// Generated code importing this file must map it via go_package to
+// github.com/go-keel/keel/proto/keel/v1; never regenerate this file with buf generate --include-imports, otherwise the
+// duplicate extension registration panics at init.
+extend google.protobuf.MethodOptions {
+  AuthRule auth = 50001;
+}
+
+message AuthRule {
+  bool allow_anonymous = 1;
+}
+
+extend google.protobuf.FieldOptions {
+  RedactRule redact = 50002;
+}
+
+// RedactRule marks a field whose value must not reach audit logs, request
+// logs, or any other side-channel record.
+//
+// It wraps a message rather than a bare bool for two reasons: adding a redaction policy later (keep the last four
+// digits and so on) only adds fields to this message without taking a second number; and proto3's bool zero value
+// cannot tell "explicitly marked false" from "not marked at all", while as a message proto.HasExtension can, which
+// is what makes an exemption expressible.
+message RedactRule {
+  // sensitive: replace the field's value with "***" when serialising.
+  //
+  // Only string is supported for now (including repeated string and string map values); marking other types is
+  // rejected at startup by redact.Validate rather than silently degrading at run time.
+  bool sensitive = 1;
+
+  // bulky: replace the field's value with "[omitted N bytes]" (N is the original value's byte count) when serialising.
+  //
+  // For **large and useless** fields such as base64 images and file contents: they are not secret, but a 1MB avatar
+  // in a log line crowds out what actually needs reading, and truncation (...[truncated]) would also eat the fields
+  // after it in the same record.
+  //
+  // It differs from sensitive in only one way: bulky keeps the byte count. A password's length is itself
+  // intelligence, while an image's size is exactly what debugging needs ("why won't the avatar save" → 1.4MB). When
+  // both are set, sensitive wins: secrecy beats saving space.
+  //
+  // Same type constraints as sensitive.
+  bool bulky = 2;
+}

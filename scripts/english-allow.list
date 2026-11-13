@@ -1,0 +1,6 @@
+# Paths allowed to contain Chinese text (globs, matched against the repository-relative path). One reason per entry.
+mw/preset.go                        # built-in zh/ja wording of validation errors shown to end users
+mw/preset_internal_test.go                   # asserts that zh/ja wording
+middleware/logging/logging_internal_test.go  # test data: multibyte log content
+scripts/check-doc-links.sh          # documents a full-width character case it handles
+scripts/check-english.sh            # none expected; listed so its own pattern comments can never trip it

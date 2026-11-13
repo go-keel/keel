@@ -1,0 +1,43 @@
+// This file uses proto2: adding an extension field to buf.validate.StringRules can only be written in proto2 /
+// editions; proto3's extend works only on proto's own option messages (annotations.proto is that kind).
+// It holds only rule definitions and no message that ships; files referencing the rules are proto3 as usual.
+syntax = "proto2";
+
+package keel.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/go-keel/keel/proto/keel/v1;keelpb";
+
+// Shared validation rules bundled with Keel (protovalidate predefined rules). Each rule is defined once here and
+// fields reference it by name, rather than each field copying the regex.
+//
+// Extension field numbers follow the ledger at the top of annotations.proto (Keel reserves 50001–51000; users carve
+// their own ranges from 51001): protovalidate leaves exactly 50000–99999 for private definitions. Two rules with the
+// same number in one process conflict at registration.
+extend buf.validate.StringRules {
+  // decimal is the decimal string: how numbers with a fraction (amounts, ratios, quantities) are written on the API.
+  // The field is a plain string, so in JSON it is "price": "123.45"; do not use float / double (precision problems).
+  //
+  //   string price = 1 [(buf.validate.field).string.(keel.v1.decimal) = true];
+  //   optional string discount = 2 [(buf.validate.field).string.(keel.v1.decimal) = true];
+  //
+  // Shape: optional leading minus; integer part 0 or starting 1-9, at most 20 digits; optional fraction, at most 8 digits.
+  // Rejects leading zeros, a plus sign, scientific notation, `100.` and `.5`. "-0" is valid and treated as 0 by the business layer.
+  // MySQL `DECIMAL(28, 8)` holds any valid value.
+  //
+  // Whether it is required depends on `optional`: without it an empty string is invalid, i.e. required; with it an
+  // omitted (or null) field skips validation, but a sent value must be valid, and an empty string is rejected too.
+  //
+  // It only guarantees "a valid decimal number". The project's own digit limits (aligned with the storage column) and
+  // ranges such as "must be positive" or "rate below 1" are not its job: for the former users define their own rule
+  // following this file, the latter is checked in the business layer.
+  //
+  // On the Go side, convert to and from decimal.Decimal with pkg/types' DecimalString / ParseDecimal /
+  // DecimalOrZero.
+  optional bool decimal = 50003 [(buf.validate.predefined).cel = {
+    id: "string.decimal"
+    message: "must be a decimal number with at most 20 integer digits and 8 decimal places"
+    expression: "!rule || this.matches('^-?(0|[1-9][0-9]{0,19})(\\\\.[0-9]{1,8})?$')"
+  }];
+}

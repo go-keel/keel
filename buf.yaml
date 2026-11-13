@@ -1,0 +1,27 @@
+version: v2
+# One Buf workspace for Keel's own proto (proto/, conf/) and the third-party files in third_party/, so nothing is
+# resolved from the Buf Schema Registry. third_party/ is upstream content: not linted, not checked for breaking changes.
+modules:
+  - path: proto
+    lint:
+      use: [STANDARD]
+    breaking:
+      use: [FILE]
+  - path: conf
+    lint:
+      use: [STANDARD]
+      except:
+        # These two govern directory layout and versioning of public API packages; conf.proto is a config schema read
+        # from YAML by field name, never served or versioned, and its generated code stays in conf/.
+        - PACKAGE_DIRECTORY_MATCH
+        - PACKAGE_VERSION_SUFFIX
+  - path: third_party/protovalidate
+    lint:
+      ignore: [third_party/protovalidate]
+    breaking:
+      ignore: [third_party/protovalidate]
+  - path: third_party/googleapis
+    lint:
+      ignore: [third_party/googleapis]
+    breaking:
+      ignore: [third_party/googleapis]

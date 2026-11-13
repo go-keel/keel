@@ -1,0 +1,10 @@
+#!/bin/sh
+# Fast checks only (seconds); the full gate is `make check`.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')
+if [ -n "$files" ]; then
+	bad=$(gofmt -l $files)
+	[ -z "$bad" ] || { echo "$bad"; echo "pre-commit: gofmt the files above"; exit 1; }
+fi
+scripts/check-doc-links.sh
