@@ -12,8 +12,8 @@ import (
 
 // NewConsumerServer wraps a set of consumers as a keel.Server, bringing them into the application lifecycle.
 //
-// Subscriptions are all registered at once through setup when the server is built (ADR keel-0005, "Rejected
-// approaches"), so the problem of consumers registered too late cannot occur. Register inside setup returns no error;
+// Subscriptions are all registered at once through setup when the server is built, so the problem of consumers
+// registered too late cannot occur. Register inside setup returns no error;
 // validation failures are recorded on the registrar and taken out and returned together here after setup runs, the
 // same shape as the two other registrations outside event contracts (kasynq's task handlers and cron).
 //
@@ -77,8 +77,8 @@ func (s *consumerServer) Start(ctx context.Context) error {
 	}
 }
 
-// Stop stops only the subscriptions this server holds and does not touch the connection (ADR keel-0005, "Only the
-// cleanup function closes the connection"). The stop budget comes entirely from ctx, the deadline kratos derives from
+// Stop stops only the subscriptions this server holds and does not touch the connection: only the cleanup function
+// NewClient returns closes it. The stop budget comes entirely from ctx, the deadline kratos derives from
 // app.stop_timeout; kratos always provides that deadline, so setting another one is unnecessary.
 func (s *consumerServer) Stop(ctx context.Context) error {
 	ok := s.stopper.run(ctx, func() { close(s.stopping) }, func(budget context.Context) {

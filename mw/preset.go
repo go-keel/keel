@@ -146,7 +146,7 @@ func appName(cfg *conf.Config) string {
 
 // meterOf uses otel's global MeterProvider directly (a process facility). When kotel.Setup has not run or
 // otel.enabled=false, otel.GetMeterProvider() is itself a harmless no-op implementation, so no nil-check fallback is
-// needed; this is exactly the kind of nil check ADR keel-0004 requires removing.
+// needed.
 func meterOf(name string) metric.Meter {
 	return otel.GetMeterProvider().Meter(name)
 }

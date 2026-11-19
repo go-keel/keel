@@ -391,7 +391,11 @@ func (cs *consumer) safeHandle(ctx context.Context, d *Delivery) (res HandlerRes
 	case resultFailed:
 		reason = res.reason("handler gave up")
 	case resultInvalid:
+		// A bug in the handler, not a judgement about the message: logged on every delivery so it shows up before the
+		// retries run out, instead of only in the final give-up.
 		reason = "handler returned the zero HandlerResult; return OK(), RetryLater(err) or Failed(err)"
+		slog.ErrorContext(ctx, "nats consumer handler returned no result",
+			"durable", cs.opt.Durable, "topic", d.Topic, "attempts", d.RetryAttempts, "reason", reason)
 	}
 	return res, reason
 }

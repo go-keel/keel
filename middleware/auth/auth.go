@@ -28,11 +28,13 @@ var (
 	ErrWrongContext    = errors.Unauthorized("UNAUTHORIZED", "wrong context for middleware")
 )
 
-// claimsCtxKey is the context key for storing JWT claims.
+// claimsCtxKey is the context key for storing the caller's claims.
 type claimsCtxKey struct{}
 
-// NewContext stores JWT claims in the context.
-func NewContext(ctx context.Context, claims jwtv5.Claims) context.Context {
+// NewContext stores the caller's claims in the context, where FromContext reads them. It takes jwtv5.MapClaims, the
+// one type FromContext returns, so a server that authenticates with its own middleware cannot store claims that every
+// later FromContext would silently miss.
+func NewContext(ctx context.Context, claims jwtv5.MapClaims) context.Context {
 	return context.WithValue(ctx, claimsCtxKey{}, claims)
 }
 
@@ -44,11 +46,12 @@ const (
 	authorizationKey string = "Authorization"
 )
 
-// FromContext extracts the Jwt claims from the context.
-// The second return is false if no claims are present or they are not jwtv5.MapClaims.
+// FromContext extracts the caller's claims from the context.
+// The second return is false if no claims are present, including nil claims stored by NewContext: storing nil
+// clears an identity a parent context carried rather than reporting a caller with no claims.
 func FromContext(ctx context.Context) (jwtv5.MapClaims, bool) {
 	claims, ok := ctx.Value(claimsCtxKey{}).(jwtv5.MapClaims)
-	return claims, ok
+	return claims, ok && claims != nil
 }
 
 // Client creates a middleware that adds the Jwt token to the request header.

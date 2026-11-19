@@ -51,7 +51,7 @@ func NewNamedDB(config *kconfig.Config, name string) (*DB, func(), error) {
 
 	// Tracing is done at the database/sql layer by otelsql: it is driver-agnostic, so unlike a tracing plugin that
 	// reads the server address by gorm dialect type it does not compile in every driver. Tracing and metrics both use
-	// otel's globals (a process facility, ADR keel-0004): without kotel.Setup or with otel.enabled=false they are
+	// otel's globals (a process facility): without kotel.Setup or with otel.enabled=false they are
 	// harmless no-ops. Query parameter values do not go into traces; only the statement with placeholders is recorded.
 	//
 	// otelsql records one span per action on a connection, so by default a single insert records six or seven. The

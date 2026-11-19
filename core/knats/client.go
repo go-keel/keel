@@ -174,7 +174,7 @@ func newClient(domain, clientName string, so streamOptions) *Client {
 
 // Client is a NATS JetStream connection. It cannot publish events itself: events go through the publisher built by
 // NewPublisher and subscriptions through NewConsumerServer. Tests replace publishing through the Publisher interface,
-// not the Client (ADR keel-0005).
+// not the Client.
 //
 // The connection is closed only by the cleanup function NewClient / NewNamedClient return; Client has no public close
 // method. The subscriptions' lifetime belongs to the keel.Server returned by NewConsumerServer; the two do not
@@ -208,8 +208,7 @@ func (c *Client) Conn() *nats.Conn               { return c.nc }
 func (c *Client) JetStream() jetstream.JetStream { return c.js }
 
 // close closes the connection. It is unexported: its only caller is the cleanup function returned by newClientForURL,
-// and the public surface deliberately offers no second way to close (ADR keel-0005, "Only the cleanup function closes
-// the connection").
+// and the public surface deliberately offers no second way to close, so one owner decides when the connection ends.
 //
 // When ctx expires it stops waiting and returns ctx's error instead of hanging here indefinitely; drainTimeout already
 // keeps this budget within 10 seconds.
@@ -272,6 +271,10 @@ func (c *Client) ensureStream(ctx context.Context, name string, subjects []strin
 	return c.ensureStreamAge(ctx, name, subjects, c.streamOpts.MaxAge)
 }
 
+// errCodeStreamSubjectOverlap is the JetStream API error "subjects overlap with an existing stream"
+// (JSStreamSubjectOverlapErr in nats-server); nats.go has no named value for it.
+const errCodeStreamSubjectOverlap jetstream.ErrorCode = 10065
+
 // ensureStreamAge is ensureStream with an explicit retention for a newly created stream.
 func (c *Client) ensureStreamAge(ctx context.Context, name string, subjects []string, maxAge time.Duration) error {
 	s, err := c.js.Stream(ctx, name)
@@ -292,6 +295,11 @@ func (c *Client) ensureStreamAge(ctx context.Context, name string, subjects []st
 		Replicas:  c.streamOpts.Replicas,
 		MaxAge:    maxAge,
 	})
+	if apiErr := (*jetstream.APIError)(nil); errors.As(err, &apiErr) && apiErr.ErrorCode == errCodeStreamSubjectOverlap {
+		return errs.Rules.Wrap(err, "knats.stream-subjects-overlap",
+			fmt.Sprintf("cannot create stream %q: another stream in this NATS account already captures some of %v", name, subjects),
+			"find it with `nats stream ls` and `nats stream info`, then remove the overlapping subjects from it or delete it")
+	}
 	if err == nil || !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) {
 		return err
 	}
@@ -352,8 +360,7 @@ func subjectCovered(have []string, want string) bool {
 // NewPublisher builds a publisher that can publish only to streams, checking each one at build time: a missing stream
 // is created, an existing one is checked to receive every subject under this stream's name. If any is wrong (including
 // unreachable, or lacking permission to look up or create streams) it returns an error: the publishing process fails
-// to start, instead of failing on the first publish and being swallowed by a caller that "only logs publish failures"
-// (ADR keel-0005, "The publisher receives all stream contracts at creation").
+// to start, instead of failing on the first publish and being swallowed by a caller that "only logs publish failures".
 //
 // It does not actually publish: permission to publish to the subjects is not checked, so publishing can still fail at
 // runtime.

@@ -23,8 +23,9 @@ and keyset pagination cheap.
 - **`Next()` can fail with a leased node ID.** The lease (30s, renewed every 10s) must be confirmed within the last 20s;
   otherwise `Next` returns `ksnowflake.ErrLeaseExpired`, because another instance may soon own the node ID and a
   duplicate ID in a database cannot be taken back. Issuing resumes once renewal succeeds. If the node ID turns out to
-  belong to another instance, the generator claims a free one and continues; the process does not exit. With a fixed
-  node ID, `Next` never fails.
+  belong to another instance, the generator claims a free one and continues; the process does not exit. So read
+  `NodeID()` when you need it and never cache it or use it as the instance's identity. With a fixed node ID, `Next`
+  never fails.
 - **Keep the library's default epoch (2010-11-04) in every service.** IDs from services with different epochs can
   collide.
 

@@ -9,6 +9,7 @@ import (
 	kerrors "github.com/go-kratos/kratos/v3/errors"
 	"github.com/go-kratos/kratos/v3/middleware"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/go-keel/keel/internal/errs"
@@ -102,16 +103,18 @@ func (g *Group) translate(ctx context.Context, err error) error {
 		}
 	}
 	// Pass through Kratos microservice errors (carry Details).
-	if st, ok := status.FromError(err); ok && len(st.Details()) > 0 {
+	st, isStatus := status.FromError(err)
+	if isStatus && len(st.Details()) > 0 {
 		return st.Err()
 	}
-	// Common context errors.
+	// Common context errors, also as gRPC returns them (a stream ended by its client, such as a health Watch when the
+	// client closes, comes back as status Canceled, not as context.Canceled).
 	// Note: kratos errors.Code is an HTTP status code; do not use gRPC codes (1/4 are invalid).
 	switch {
-	case errors.Is(err, context.Canceled):
+	case errors.Is(err, context.Canceled) || isStatus && st.Code() == codes.Canceled:
 		// 499: client closed request (nginx convention)
 		return kerrors.New(499, "CANCELED", "request canceled")
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded) || isStatus && st.Code() == codes.DeadlineExceeded:
 		return kerrors.New(504, "DEADLINE_EXCEEDED", "request deadline exceeded")
 	}
 	return g.defaultFunc(ctx, err)

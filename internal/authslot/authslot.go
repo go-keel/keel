@@ -1,6 +1,6 @@
 // Package authslot is the one path that fills a chain's auth slot. Package mw sets Fill when it is initialised and the
 // api server constructors call it; it lives under internal so users cannot import it, which keeps the server's own
-// auth config the only way to mount authentication (ADR keel-0002).
+// auth config the only way to mount authentication.
 package authslot
 
 import "github.com/go-kratos/kratos/v3/middleware"

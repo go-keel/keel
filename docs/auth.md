@@ -102,6 +102,27 @@ inserted after the auth slot ([middleware](middleware.md#adding-your-own-middlew
 `ErrMissingJwtToken`, `ErrInvalidToken` and `ErrWrongContext` share code and reason, so `errors.Is` treats them as
 equal: callers only need "authentication failed", and the message is for people.
 
+## Authentication of your own
+
+Keel verifies only JWTs, from the server's `auth` config. A server that authenticates another way (its own service
+credentials, a session issued elsewhere) does it in its own middleware:
+
+1. Leave `auth` off for that server; the auth slot of `mw.Default` stays a pass-through.
+2. Insert your middleware right after it: `chain.InsertAfter(mw.SlotAuth, yourAuth(), "your-auth")`.
+3. On success store the caller with `auth.NewContext(ctx, jwtv5.MapClaims{"sub": ...})`, so `auth.FromContext` works
+   downstream as usual.
+
+Do not also turn `auth` on: both would run, and Keel cannot tell your authentication from a check that belongs after
+it. `RequireLogin()` raw routes need the server's own `auth` and fail startup without it
+(`api.require-login-without-auth`); on such a server mount them on `sc.Server()`, the escape hatch for routes that
+handle authentication themselves. Raw routes skip the middleware chain, so your middleware never runs for them and
+`auth.FromContext` finds nothing: the handler, or an `http.Handler` wrapper around it, verifies the request's
+credentials itself.
+
+The proto annotation `(keel.v1.auth) = { allow_anonymous: true }` is read only by Keel's own authentication; with
+`auth` off it has no effect, and your middleware decides which operations it lets through (by
+`transport.FromServerContext(ctx)` and the operation, for example).
+
 ## Calling another service with a token
 
 Mount `mw.WithClientAuth` on the client chain; see [client](client.md#the-client-chain).

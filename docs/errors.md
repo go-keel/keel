@@ -243,6 +243,15 @@ never reach the stream, silently.
 Fix: add the subject to the stream with the nats CLI, or delete the stream and let knats recreate it. See
 [the NATS component](messaging.md).
 
+## knats.stream-subjects-overlap
+
+Creating a stream failed because another stream in the same NATS account already captures some of its subjects; a
+subject can belong to one stream only. This also applies to `DEAD_LETTER`, whose subjects are the server's give-up
+advisories.
+
+Fix: find the other stream with `nats stream ls` and `nats stream info`, then remove the overlapping subjects from it or
+delete it. See [the NATS component](messaging.md).
+
 ## knats.stream-undeclared
 
 `Publish` / `PublishEx` named a stream that was not passed to `NewPublisher`. Streams are checked when the publisher is

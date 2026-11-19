@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	kerrors "github.com/go-kratos/kratos/v3/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/go-keel/keel/middleware/sentinel"
 )
@@ -106,5 +108,27 @@ func TestGroup_InvalidRegistrationRecordsError(t *testing.T) {
 	}
 	if err := sentinel.NewGroup().On(errNotFound, sentinel.NotFound("NOTE_NOT_FOUND")).Err(); err != nil {
 		t.Fatalf("valid registration: Err() = %v, want nil", err)
+	}
+}
+
+// Cancellation and deadlines map the same whether they arrive as context errors or as the gRPC status a stream returns
+// when its client goes away; otherwise a client closing a health Watch shows up as a 500 with an ERROR log.
+func TestGroup_CanceledAndDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code int32
+	}{
+		{context.Canceled, 499},
+		{status.Error(codes.Canceled, "Stream has ended."), 499},
+		{context.DeadlineExceeded, 504},
+		{status.Error(codes.DeadlineExceeded, "deadline"), 504},
+	} {
+		h := sentinel.NewGroup().Middleware()(func(ctx context.Context, req any) (any, error) {
+			return nil, tc.err
+		})
+		_, err := h(context.Background(), nil)
+		if ke := kerrors.FromError(err); ke == nil || ke.Code != tc.code {
+			t.Errorf("%v: got %v, want code %d", tc.err, err, tc.code)
+		}
 	}
 }

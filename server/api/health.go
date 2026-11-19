@@ -17,7 +17,7 @@ const HealthPath = "/health"
 //
 // It only means the process is alive and can respond; it does not probe dependencies such as the DB or Redis: load
 // balancers probe every instance repeatedly, and probing dependencies would let one dependency blip pull all
-// instances at once. The trade-off is in ADR keel-0009. It is a raw route that skips the middleware chain and needs
+// instances at once (docs/http.md). It is a raw route that skips the middleware chain and needs
 // no credential, even on servers with authentication enabled.
 func registerHealth(srv *khttp.Server) {
 	srv.HandleFunc(HealthPath, func(w http.ResponseWriter, r *http.Request) {

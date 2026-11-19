@@ -104,7 +104,7 @@ func NewEventType[T any](stream Stream, subject string) EventType[T] {
 // Publish encodes the payload and publishes it to the contract's stream and subject.
 //
 // It takes the Publisher interface: a business test that replaces the publishing layer only needs a hand-written
-// double implementing two methods (ADR keel-0005, "Rejected approaches").
+// double implementing two methods.
 func (e EventType[T]) Publish(ctx context.Context, p Publisher, v T) error {
 	return p.Publish(ctx, e.stream, e.subject, v)
 }
@@ -166,7 +166,7 @@ func (e EventType[T]) Handle(r ConsumerRegistrar, fn EventHandler[T], opt EventO
 // stream contracts given at creation.
 //
 // It is an interface rather than a struct for business tests: a double implements just these two methods, without
-// also implementing Client's Conn()/JetStream() escape hatches (ADR keel-0005, "Rejected approaches").
+// also implementing Client's Conn()/JetStream() escape hatches.
 type Publisher interface {
 	// Publish serialises v to JSON and publishes it to subject under stream. A stream not in the list given at
 	// creation returns ErrStreamNotDeclared.

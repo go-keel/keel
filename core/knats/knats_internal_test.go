@@ -3,8 +3,10 @@
 package knats
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/go-keel/keel/conf"
 	"github.com/go-keel/keel/core/kconfig"
+	"github.com/go-keel/keel/pkg/rule"
 )
 
 func okHandler(context.Context, *Delivery) HandlerResult { return OK() }
@@ -225,12 +228,21 @@ func TestEventHandleDecodeFailureReason(t *testing.T) {
 	}
 }
 
-// The zero HandlerResult is not a valid disposition; it is retried and the reason says how to fix the handler.
+// The zero HandlerResult is not a valid disposition; it is retried, the reason says how to fix the handler, and every
+// delivery logs an error so the bug shows before the retries run out.
 func TestSafeHandleZeroResult(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	cs := newTestConsumer("d")
 	cs.handler = func(context.Context, *Delivery) HandlerResult { return HandlerResult{} }
 	if res, reason := cs.safeHandle(context.Background(), &Delivery{}); res.kind != resultInvalid || !strings.Contains(reason, "zero HandlerResult") {
 		t.Errorf("got (%v, %q), want the zero result reported", res, reason)
+	}
+	if !strings.Contains(buf.String(), "level=ERROR") || !strings.Contains(buf.String(), "returned no result") {
+		t.Errorf("log = %q, want an error naming the missing result", buf.String())
 	}
 }
 
@@ -422,8 +434,8 @@ func TestStopBudgetKeepsCallerDeadline(t *testing.T) {
 }
 
 // A stop given up halfway must not report success, or the caller believes every message was handled cleanly. This
-// tests consumerServer.Stop (it owns the subscriptions' stop budget, not client.Shutdown; ADR keel-0005, "Only the
-// cleanup function closes the connection") by constructing a consumerServer literal directly: it is the real type
+// tests consumerServer.Stop (it owns the subscriptions' stop budget, not client.Shutdown; only the cleanup function
+// closes the connection) by constructing a consumerServer literal directly: it is the real type
 // NewConsumerServer produces, and the only step skipped here is "open a real connection and register"; Stop's logic
 // does not depend on being connected.
 //
@@ -660,8 +672,7 @@ func TestRetryThenGiveUp(t *testing.T) {
 }
 
 // Shutdown order: consumerServer.Stop stops only its own subscriptions and the connection stays usable; the connection
-// is closed only by the cleanup function NewClient returns (ADR keel-0005, "Only the cleanup function closes the
-// connection").
+// is closed only by the cleanup function NewClient returns.
 func TestStopOrder_ConnectionOutlivesConsumerServerStop(t *testing.T) {
 	c, cleanup, err := NewClient(testConfig(startTestNATS(t)))
 	if err != nil {
@@ -1031,5 +1042,24 @@ func TestReplayDeadLetter_OriginalGone(t *testing.T) {
 	}
 	if err := ReplayDeadLetter(ctx, js, 1); !errors.Is(err, ErrOriginalGone) {
 		t.Errorf("got %v, want ErrOriginalGone", err)
+	}
+}
+
+// A stream that cannot be created because another stream in the account already captures its subjects fails with a
+// rule error that says how to find and fix the other stream, not the bare JetStream API error.
+func TestEnsureStreamSubjectsOverlap(t *testing.T) {
+	c, cleanup, err := NewClient(testConfig(startTestNATS(t)))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer cleanup()
+	ctx := context.Background()
+	if err := c.ensureStream(ctx, "overlap_first", []string{"overlap.>"}); err != nil {
+		t.Fatalf("first stream: %v", err)
+	}
+	err = c.ensureStream(ctx, "overlap_second", []string{"overlap.x"})
+	var re *rule.Error
+	if !errors.As(err, &re) || re.ID != "knats.stream-subjects-overlap" {
+		t.Fatalf("overlapping stream: err = %v, want knats.stream-subjects-overlap", err)
 	}
 }

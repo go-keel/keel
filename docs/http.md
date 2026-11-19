@@ -374,5 +374,5 @@ Errors use the Kratos error shape:
 ```
 
 The message is a sentence the end user reads. Mount sentinel ([middleware](middleware.md#sentinel)) to map business
-errors and to keep unknown errors from leaking their text; it also maps `context.Canceled` to 499 and
-`DeadlineExceeded` to 504.
+errors and to keep unknown errors from leaking their text; it also maps cancellation to 499 and an
+exceeded deadline to 504.

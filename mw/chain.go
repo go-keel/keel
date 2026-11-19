@@ -13,7 +13,7 @@ import (
 // Middleware is an alias of kratos middleware.Middleware, not a new type. Defining a function type as a new type
 // would force users to write a conversion for every kratos ecosystem middleware they plug in (otelmetrics,
 // circuitbreaker, the official recovery/validate...); an alias is identical to the original type, so both Keel's
-// own middleware and plain kratos middleware pass straight to Chain's methods with zero friction. See ADR keel-0010.
+// own middleware and plain kratos middleware pass straight to Chain's methods with zero friction.
 type Middleware = middleware.Middleware
 
 // Server-side slot names

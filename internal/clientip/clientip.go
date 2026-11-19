@@ -19,7 +19,8 @@ import (
 )
 
 // HeaderForwardedFor is the only forwarding header that is read. X-Real-IP and CDN-specific headers
-// (CF-Connecting-IP and the like) are never read, for the reasons in ADR keel-0003; nor is RFC 7239 Forwarded.
+// (CF-Connecting-IP and the like) are never read: they hold a single value with no record of who added it, and a
+// client that bypasses the CDN can forge them. Nor is RFC 7239 Forwarded.
 const HeaderForwardedFor = "X-Forwarded-For"
 
 // Resolver is one server's address rule. Its zero value is unusable; use New or Default.

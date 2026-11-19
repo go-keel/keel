@@ -23,7 +23,7 @@ type App struct {
 // (api.NewHTTPServer/NewGRPCServer, knats.NewConsumerServer, worker.Server) and New's parameters present it
 // under this name: Keel is a framework, and the type users write every day should be its own name, not the
 // underlying kratos one. It is an interface over an interface with an identical method set, so assignment in
-// either direction needs no explicit conversion; the reasons and rejected approaches are in ADR keel-0010.
+// either direction needs no explicit conversion.
 type Server transport.Server
 
 func NewAppFactory(config *Config) *AppFactory {

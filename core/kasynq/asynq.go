@@ -83,8 +83,8 @@ func (t TaskType[T]) RegisterCron(r ScheduleRegistrar, cronspec string, p T, opt
 // Enqueuer is the narrow interface needed to enqueue tasks; its only method is Enqueue.
 //
 // It is the seam for business tests: *TaskClient is concrete and also carries Client(), an escape hatch that returns
-// a third-party raw type, so a fake replaces Enqueuer instead. The reason is the same as for knats.Publisher (ADR keel-0005, "Rejected approaches"). The biz
-// layer depends on it, business fakes implement it, and TaskType.Enqueue takes it.
+// a third-party raw type, so a fake replaces Enqueuer instead, the same way as knats.Publisher. The biz layer depends
+// on it, business fakes implement it, and TaskType.Enqueue takes it.
 type Enqueuer interface {
 	// Enqueue is the bytes-level enqueue entry point: the payload is enqueued as is, without encoding. Ordinary
 	// business code uses TaskType.Enqueue (which goes through it); this one is for custom encodings and dynamic task

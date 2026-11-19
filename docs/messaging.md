@@ -206,7 +206,8 @@ durable must set the same value.
 When knats gives up on a message it terminates it with a reason. The server publishes a terminated (or
 max-deliveries) advisory carrying the stream, consumer, stream sequence, delivery count and reason, and the
 `DEAD_LETTER` stream keeps those advisories. The first consumer server that starts creates it, because advisories
-published before it exists are lost; its retention is `nats.<name>.dead_letter_max_age` (default 30 days).
+published before it exists are lost; its retention is `nats.<name>.dead_letter_max_age` (default 30 days). If another
+stream in the account already captures those advisory subjects, creation fails with `knats.stream-subjects-overlap`.
 
 The message itself is not copied: it stays in its own stream until that stream's retention (`stream_max_age`,
 default 7 days) ends. `knats.ListDeadLetters` and `knats.ReplayDeadLetter`, and the command

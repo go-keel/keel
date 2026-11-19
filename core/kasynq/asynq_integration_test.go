@@ -117,7 +117,8 @@ func TestSchedulerReplicasShareOneLease(t *testing.T) {
 		go func() { done <- s.Start(ctx) }()
 		return s, done
 	}
-	holder := func() string { v, _ := rdb.Get(ctx, key).Result(); return v }
+	// The lease value is "<instance ID>/<random>"; the instance ID tells the replicas apart.
+	holder := func() string { v, _ := rdb.Get(ctx, key).Result(); id, _, _ := strings.Cut(v, "/"); return id }
 	waitHolder := func(want string, within time.Duration) {
 		t.Helper()
 		deadline := time.Now().Add(within)

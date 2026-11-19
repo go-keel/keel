@@ -16,6 +16,12 @@ than the linked Go package would let a new validation rule compile and then be s
 
 - **Generate only your own files.** Map Keel's import to the Go package above and never regenerate Keel's files with
   `buf generate --include-imports`: a second registration of the same extension number panics in `init`.
+- **Other third-party `.proto` files are yours to vendor.** Keel's `third_party/googleapis` holds only
+  `google/api/annotations.proto`, `http.proto` and `httpbody.proto`. When your contract imports anything else (such as
+  `google/type/money.proto`), copy that file at a fixed version into a `third_party/` directory of your own, outside
+  the directories you keep identical to Keel, and declare that directory as a module in your `buf.yaml`. Keep one
+  source per file: do not also pull googleapis from the Buf Schema Registry next to Keel's copies. The well-known
+  types (`google/protobuf/*.proto`) need nothing: buf has them built in.
 - **Take extension numbers from your own range.** Keel reserves 50001-51000 (`auth` 50001, `redact` 50002, `decimal`
   50003, assigned in order whatever the extendee, so the ledger never shows one number twice). Applications take
   ranges of 1000 from 51001 upwards and declare them in their own `.proto` files.

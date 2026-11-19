@@ -205,7 +205,8 @@ func NewNoteErrors() *sentinel.Group {
 - `Default(handler)` replaces the fallback for unmatched errors.
 
 Unmatched errors, in order: a Kratos error carrying details (from a downstream service) passes through unchanged;
-`context.Canceled` becomes 499 `CANCELED`; `context.DeadlineExceeded` becomes 504 `DEADLINE_EXCEEDED`; anything else
+`context.Canceled` or a gRPC status `Canceled` (a stream whose client went away) becomes 499 `CANCELED`;
+`context.DeadlineExceeded` or a gRPC status `DeadlineExceeded` becomes 504 `DEADLINE_EXCEEDED`; anything else
 goes to the fallback, by default `sentinel.InternalWithLog`, which logs the error and returns 500 `INTERNAL` with the
 message `internal error`.
 
