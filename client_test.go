@@ -7,61 +7,56 @@ import (
 
 	"github.com/go-keel/keel"
 	"github.com/go-keel/keel/conf"
+	"github.com/go-keel/keel/core/kconfig"
 )
 
 type fakeClient struct{ cc grpc.ClientConnInterface }
 
-func newFactory(clients map[string]*conf.Client) *keel.ServiceClientFactory {
-	cfg := &keel.Config{Config: &conf.Config{
+func clientCfg(clients map[string]*conf.Client) *kconfig.Config {
+	return &kconfig.Config{Config: &conf.Config{
 		App:    &conf.App{Name: "test-svc"},
 		Client: clients,
 	}}
-	return keel.NewServiceClientFactory(cfg)
 }
 
+func newFake(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }
+
 func TestNewServiceClient_InvalidParams(t *testing.T) {
-	f := newFactory(nil)
-	if _, _, err := keel.NewServiceClient(nil, "svc", func(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }, nil); err == nil {
-		t.Error("nil factory should error")
+	cfg := clientCfg(map[string]*conf.Client{"svc": {Endpoint: "dns:///svc:9000"}})
+	cases := map[string]func() error{
+		"nil config": func() error { _, _, err := keel.NewServiceClient(nil, "svc", newFake, nil); return err },
+		"config without body": func() error {
+			_, _, err := keel.NewServiceClient(&kconfig.Config{}, "svc", newFake, nil)
+			return err
+		},
+		"empty service name": func() error { _, _, err := keel.NewServiceClient(cfg, "", newFake, nil); return err },
+		"nil constructor":    func() error { _, _, err := keel.NewServiceClient[fakeClient](cfg, "svc", nil, nil); return err },
 	}
-	if _, _, err := keel.NewServiceClient(f, "", func(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }, nil); err == nil {
-		t.Error("empty service name should error")
-	}
-	if _, _, err := keel.NewServiceClient[fakeClient](f, "svc", nil, nil); err == nil {
-		t.Error("nil constructor should error")
-	}
-	// When the factory is built with NewServiceClientFactory(nil) its internal config is nil;
-	// it must return an error rather than panic on the ClientDefault/Client map dereference.
-	nilCfgFactory := keel.NewServiceClientFactory(nil)
-	if _, _, err := keel.NewServiceClient(nilCfgFactory, "svc", func(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }, nil); err == nil {
-		t.Error("factory with nil config should error")
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Fatal("err = nil, want client.invalid-params")
+			}
+		})
 	}
 }
 
 func TestNewServiceClient_MissingConfig(t *testing.T) {
-	f := newFactory(map[string]*conf.Client{"other": {Endpoint: "dns:///other:9000"}})
-	_, _, err := keel.NewServiceClient(f, "svc", func(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }, nil)
-	if err == nil {
+	cfg := clientCfg(map[string]*conf.Client{"other": {Endpoint: "dns:///other:9000"}})
+	if _, _, err := keel.NewServiceClient(cfg, "svc", newFake, nil); err == nil {
 		t.Error("missing service config should error")
 	}
 }
 
 func TestNewServiceClient_LazyConstruction(t *testing.T) {
 	// v3 grpc.NewClient connects lazily: construction should succeed and not block even if the endpoint is unreachable.
-	f := newFactory(map[string]*conf.Client{"svc": {Endpoint: "dns:///unreachable.invalid:9000"}})
-	c, cleanup, err := keel.NewServiceClient(f, "svc", func(cc grpc.ClientConnInterface) fakeClient { return fakeClient{cc} }, nil)
+	cfg := clientCfg(map[string]*conf.Client{"svc": {Endpoint: "dns:///unreachable.invalid:9000"}})
+	c, cleanup, err := keel.NewServiceClient(cfg, "svc", newFake, nil)
 	if err != nil {
 		t.Fatalf("lazy construction should not fail: %v", err)
 	}
 	defer cleanup()
 	if c.cc == nil {
 		t.Error("client conn should be set")
-	}
-}
-
-func TestServiceClientFactory_Accessors(t *testing.T) {
-	f := newFactory(nil)
-	if f.Config() == nil {
-		t.Error("Config() nil")
 	}
 }

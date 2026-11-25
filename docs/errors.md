@@ -13,7 +13,7 @@ they are ordinary errors without an ID.
 
 ## app.no-servers
 
-`AppFactory.New` was called without any transport server. An app with nothing to serve would start and exit at once,
+`keel.NewApp` was called without any transport server. An app with nothing to serve would start and exit at once,
 or hang with no listener, so Keel refuses at assembly.
 
 Fix: pass every server the process runs, such as the ones from `api.NewHTTPServer`, `api.NewGRPCServer`,
@@ -21,18 +21,18 @@ Fix: pass every server the process runs, such as the ones from `api.NewHTTPServe
 
 ## app.config-missing
 
-`AppFactory` was built from a nil config, or from one without an `app` section. The app ID, name, version and stop
-timeout all come from that section.
+`keel.NewApp` got a nil config, or one without an `app` section. The app ID, name, version and stop timeout all come
+from that section.
 
 Fix: build the config with `kconfig.NewConfig` and make sure `configs/config.yaml` has an `app` section. See
 [the config component](config.md).
 
 ## client.invalid-params
 
-`keel.NewServiceClient` was called with a nil factory, a factory without config, an empty service name, or a nil
-`newClient`. None of them has a usable default.
+`keel.NewServiceClient` was called with a nil config, an empty service name, or a nil `newClient`. None of them has
+a usable default.
 
-Fix: pass the factory from `keel.NewServiceClientFactory`, the service name as written under `client` in the config,
+Fix: pass the config from `kconfig.NewConfig`, the service name as written under `client` in the config,
 and the generated `New<Service>Client` function. See [the service client](client.md).
 
 ## client.config-missing

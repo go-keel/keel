@@ -104,7 +104,7 @@ func run() error {
     // The logger is a process facility too: set the default once, then call package-level slog.
     keel.SetupLogger(cfg)
 
-    chain := mw.Default(cfg.Config)
+    chain := mw.Default(cfg)
 
     srv, err := api.NewHTTPServer(
         cfg.GetServer().GetHttp()["default"],
@@ -117,7 +117,7 @@ func run() error {
         return err
     }
 
-    app, err := keel.NewAppFactory(keel.NewConfig(cfg)).New(srv)
+    app, err := keel.NewApp(cfg, srv)
     if err != nil {
         return err
     }

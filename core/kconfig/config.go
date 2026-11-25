@@ -76,7 +76,7 @@ func NewConfig() (*Config, error) {
 }
 
 // defaultStopTimeout is the fallback when app.stop_timeout is unset. Several components derive the same deadline from
-// it (keel.AppFactory's kratos.StopTimeout, the asynq.Config.ShutdownTimeout inside kasynq.WorkerServer), and all of
+// it (keel.NewApp's kratos.StopTimeout, the asynq.Config.ShutdownTimeout inside kasynq.WorkerServer), and all of
 // them must go through the single StopTimeout() function rather than each writing its own default; otherwise the
 // promise "there is only one number to configure" silently diverges somewhere again.
 const defaultStopTimeout = 20 * time.Second

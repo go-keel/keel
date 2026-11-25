@@ -17,7 +17,7 @@ import (
 // concurrently, matching how kratos really calls them.
 func TestWorker_StopBeforeStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		w := worker.Server(func(ctx context.Context) error {
+		w := worker.NewServer(func(ctx context.Context) error {
 			<-ctx.Done()
 			return ctx.Err()
 		})
@@ -52,7 +52,7 @@ func TestWorker_StopReturnsErrorWhenRunnerIgnoresCancellation(t *testing.T) {
 		blocked := make(chan struct{})
 		defer close(blocked)
 
-		w := worker.Server(func(ctx context.Context) error {
+		w := worker.NewServer(func(ctx context.Context) error {
 			<-blocked // a runner that ignores ctx.Done()
 			return nil
 		})
@@ -70,7 +70,7 @@ func TestWorker_StopReturnsErrorWhenRunnerIgnoresCancellation(t *testing.T) {
 // Together with -race, covers synchronisation of concurrent Start/Stop access to the cancel field.
 func TestWorker_ConcurrentStartStop(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		w := worker.Server(func(ctx context.Context) error {
+		w := worker.NewServer(func(ctx context.Context) error {
 			<-ctx.Done()
 			return nil
 		})

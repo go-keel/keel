@@ -6,7 +6,7 @@ import (
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
-// Verifier is the JWT verifier interface.
+// Verifier is what code that checks tokens depends on; RS256Verifier and HS256Verifier implement it.
 type Verifier interface {
 	Verify(token string) (jwtv5.MapClaims, error)
 }
@@ -31,19 +31,21 @@ type Verifier interface {
 //	if err != nil {
 //	    // invalid token
 //	}
-func NewRS256Verifier(key *rsa.PublicKey) Verifier {
-	return &rs256Verifier{
+func NewRS256Verifier(key *rsa.PublicKey) *RS256Verifier {
+	return &RS256Verifier{
 		keyFun: func(*jwtv5.Token) (any, error) {
 			return key, nil
 		},
 	}
 }
 
-type rs256Verifier struct {
+// RS256Verifier checks RS256 tokens against an RSA public key.
+type RS256Verifier struct {
 	keyFun jwtv5.Keyfunc
 }
 
-func (v *rs256Verifier) Verify(token string) (jwtv5.MapClaims, error) {
+// Verify checks the signature, the algorithm and a required exp, and returns the claims.
+func (v *RS256Verifier) Verify(token string) (jwtv5.MapClaims, error) {
 	claims := jwtv5.MapClaims{}
 	_, err := jwtv5.ParseWithClaims(token, claims, v.keyFun,
 		jwtv5.WithValidMethods([]string{jwtv5.SigningMethodRS256.Alg()}),
@@ -78,18 +80,20 @@ func (v *rs256Verifier) Verify(token string) (jwtv5.MapClaims, error) {
 //	if err != nil {
 //	    // invalid token
 //	}
-func NewHS256Verifier(secret []byte) (Verifier, error) {
+func NewHS256Verifier(secret []byte) (*HS256Verifier, error) {
 	if len(secret) == 0 {
 		return nil, ErrEmptySecret
 	}
-	return &hs256Verifier{secret: secret}, nil
+	return &HS256Verifier{secret: secret}, nil
 }
 
-type hs256Verifier struct {
+// HS256Verifier checks HS256 tokens against an HMAC-SHA256 secret.
+type HS256Verifier struct {
 	secret []byte
 }
 
-func (v *hs256Verifier) Verify(token string) (jwtv5.MapClaims, error) {
+// Verify checks the signature, the algorithm and a required exp, and returns the claims.
+func (v *HS256Verifier) Verify(token string) (jwtv5.MapClaims, error) {
 	claims := jwtv5.MapClaims{}
 	_, err := jwtv5.ParseWithClaims(token, claims,
 		func(*jwtv5.Token) (any, error) {

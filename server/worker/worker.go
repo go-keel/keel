@@ -10,12 +10,13 @@ import (
 	"github.com/go-keel/keel"
 )
 
+// Runner is the long-running work; it must return once ctx is done.
 type Runner func(ctx context.Context) error
 
-// Server wraps a long-running Runner as a keel.Server so it joins the app
-// lifecycle (graceful start/stop).
-func Server(runner Runner) keel.Server {
-	return &workerImpl{
+// NewServer wraps a long-running Runner as a server (a keel.Server) so it joins the app lifecycle (graceful
+// start/stop).
+func NewServer(runner Runner) *Server {
+	return &Server{
 		cancel: func() {},
 		runner: runner,
 		// done is closed after the runner returns; Stop uses it to tell whether the runner has really exited.
@@ -25,7 +26,10 @@ func Server(runner Runner) keel.Server {
 	}
 }
 
-type workerImpl struct {
+var _ keel.Server = (*Server)(nil)
+
+// Server runs one Runner for the life of the app; build it with NewServer.
+type Server struct {
 	// kratos App.Run calls Start/Stop from two concurrent goroutines; mu guards installing and reading cancel.
 	// stopped records "Stop arrived first", so Start cancels immediately, preventing a cancellation lost in the
 	// race window from leaving the runner running forever.
@@ -38,7 +42,7 @@ type workerImpl struct {
 
 // Start runs the Runner, recovering from panics. A panic is converted to an
 // error so kratos triggers graceful shutdown instead of crashing the process.
-func (w *workerImpl) Start(ctx context.Context) (err error) {
+func (w *Server) Start(ctx context.Context) (err error) {
 	defer close(w.done)
 	runCtx, cancel := context.WithCancel(ctx)
 	w.mu.Lock()
@@ -68,7 +72,7 @@ func (w *workerImpl) Start(ctx context.Context) (err error) {
 // (eg.Wait()); the wait timeout here only makes Stop's return value honest. If the Runner ignores ctx.Done()
 // entirely, Start never returns and the process still cannot stop. The framework cannot guarantee this layer; it can
 // only require that the Runner watches ctx.
-func (w *workerImpl) Stop(ctx context.Context) error {
+func (w *Server) Stop(ctx context.Context) error {
 	w.mu.Lock()
 	w.stopped = true
 	cancel := w.cancel

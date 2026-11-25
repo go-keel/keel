@@ -20,7 +20,11 @@ func verifierFromConfig(cfg *conf.Server_Auth) (jwt.Verifier, error) {
 	case "HS256":
 		// An empty secret is rejected by jwt.NewHS256Verifier itself: this takes a raw conf message, which is not
 		// guaranteed to have passed kconfig's load-time validation.
-		return jwt.NewHS256Verifier([]byte(cfg.GetJwtSecret()))
+		v, err := jwt.NewHS256Verifier([]byte(cfg.GetJwtSecret()))
+		if err != nil {
+			return nil, err // not v: a nil *HS256Verifier would make a non-nil Verifier
+		}
+		return v, nil
 	default:
 		return nil, errs.Rules.New("api.auth-algorithm", fmt.Sprintf("auth.algorithm is %q, which Keel does not support", cfg.GetAlgorithm()), "set auth.algorithm to RS256 (the default) or HS256")
 	}

@@ -312,7 +312,7 @@ func (f *fakeConsumeContext) Closed() <-chan struct{} { return f.closed }
 // A subscription that closes by itself without anyone asking (durable deleted, consumer kicked) must take the whole
 // consumer server down: a live process whose messages nobody consumes is the hardest failure to notice. A
 // subscription we closed ourselves while stopping must not report an error. failures is passed in by the caller
-// (consumerServer); here a local channel drives it directly.
+// (ConsumerServer); here a local channel drives it directly.
 func TestConsumerDeathIsReported(t *testing.T) {
 	cs := newTestConsumer("notify")
 	failures := make(chan error, 1)
@@ -427,8 +427,8 @@ func TestStopBudgetKeepsCallerDeadline(t *testing.T) {
 }
 
 // A stop given up halfway must not report success, or the caller believes every message was handled cleanly. This
-// tests consumerServer.Stop (it owns the subscriptions' stop budget, not client.Shutdown; only the cleanup function
-// closes the connection) by constructing a consumerServer literal directly: it is the real type
+// tests ConsumerServer.Stop (it owns the subscriptions' stop budget, not client.Shutdown; only the cleanup function
+// closes the connection) by constructing a ConsumerServer literal directly: it is the real type
 // NewConsumerServer produces, and the only step skipped here is "open a real connection and register"; Stop's logic
 // does not depend on being connected.
 //
@@ -441,7 +441,7 @@ func TestConsumerServerStop_ReportsAbandonment(t *testing.T) {
 	cs := newTestConsumer("stuck")
 	cs.wg.Go(func() { <-blocked }) // a worker that ignores ctx.Done()
 
-	srv := &consumerServer{
+	srv := &ConsumerServer{
 		consumers: []*consumer{cs},
 		failures:  make(chan error, 1),
 		stopping:  make(chan struct{}),

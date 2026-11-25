@@ -20,7 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/go-keel/keel/conf"
+	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/errs"
 	"github.com/go-keel/keel/middleware/auth"
 	"github.com/go-keel/keel/middleware/locale"
@@ -42,7 +42,7 @@ import (
 //
 // Each server calls Default once to build its own chain; to derive variants from a shared base chain, Clone() first
 // and then customise (the combinators modify the chain in place).
-func Default(cfg *conf.Config) *Chain {
+func Default(cfg *kconfig.Config) *Chain {
 	chain := empty()
 	metrics, merr := serverMetrics(appName(cfg))
 	validator, verr := protovalidateFunc()
@@ -81,7 +81,7 @@ func Minimal() *Chain {
 // Auth is NOT included — add it with WithClientAuth.
 //
 // It takes no observability parameter, for the same reason as Default.
-func ClientDefault(cfg *conf.Config) *ClientChain {
+func ClientDefault(cfg *kconfig.Config) *ClientChain {
 	metrics, err := clientMetrics(appName(cfg))
 	chain := &ClientChain{err: err}
 	return chain.
@@ -137,7 +137,8 @@ func WithSentinel(chain *Chain, sg *sentinel.Group) {
 	chain.add(SlotSentinel, sg.Middleware())
 }
 
-func appName(cfg *conf.Config) string {
+// appName tolerates a nil config so tests can build a chain with Default(nil).
+func appName(cfg *kconfig.Config) string {
 	if cfg != nil && cfg.GetApp() != nil {
 		return cfg.GetApp().GetName()
 	}

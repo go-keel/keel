@@ -10,49 +10,39 @@ import (
 	transgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	"google.golang.org/grpc"
 
+	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/errs"
 	"github.com/go-keel/keel/mw"
 )
 
 var selectorOnce sync.Once
 
-type ServiceClientFactory struct {
-	c *Config
-}
-
-func NewServiceClientFactory(c *Config) *ServiceClientFactory {
-	// Weighted Round Robin (the Kratos client's built-in default algorithm).
-	// Set at explicit construction so an import side effect does not affect other kratos clients in the same process.
-	selectorOnce.Do(func() {
-		selector.SetGlobalSelector(wrr.NewBuilder())
-	})
-	return &ServiceClientFactory{c: c}
-}
-
-// Config exposes the underlying config for building a ClientChain.
-func (f *ServiceClientFactory) Config() *Config { return f.c }
-
-// NewServiceClient creates a typed gRPC client with the given ClientChain.
-// A nil chain uses the recommended mw.ClientDefault. Pass a custom chain only
-// when the default does not fit. Returns the client, a cleanup func, and any error.
+// NewServiceClient creates a typed gRPC client for the service configured under client.<serviceName>, with the given
+// ClientChain. A nil chain uses the recommended mw.ClientDefault(cfg); pass a custom chain only when the default does
+// not fit. Returns the client, a cleanup that closes the connection, and any error.
 func NewServiceClient[T any](
-	factory *ServiceClientFactory,
+	cfg *kconfig.Config,
 	serviceName string,
 	newClient func(cc grpc.ClientConnInterface) T,
 	chain *mw.ClientChain,
 ) (T, func(), error) {
 	var zero T
-	if factory == nil || factory.c == nil || serviceName == "" || newClient == nil {
-		return zero, nil, errs.Rules.New("client.invalid-params", "NewServiceClient was called with a nil factory, a factory without config, an empty service name or a nil newClient", "pass the factory from NewServiceClientFactory, the service name as it appears under `client` in the config, and the generated New<Service>Client function")
+	if cfg == nil || cfg.Config == nil || serviceName == "" || newClient == nil {
+		return zero, nil, errs.Rules.New("client.invalid-params", "NewServiceClient was called with a nil config, an empty service name or a nil newClient", "pass the config from kconfig.NewConfig, the service name as it appears under `client` in the config, and the generated New<Service>Client function")
 	}
+	// Weighted Round Robin (the Kratos client's built-in default algorithm). Kratos reads the balancer from a global;
+	// it is set on the first client built, not at import, so importing keel does not change other kratos clients.
+	selectorOnce.Do(func() {
+		selector.SetGlobalSelector(wrr.NewBuilder())
+	})
 	if chain == nil {
-		chain = mw.ClientDefault(factory.c.Config)
+		chain = mw.ClientDefault(cfg)
 	}
 	if err := chain.Err(); err != nil {
 		return zero, nil, errs.While("NewServiceClient: build middleware chain", err)
 	}
 
-	c := factory.c.Client[serviceName]
+	c := cfg.Client[serviceName]
 	if c == nil {
 		return zero, nil, errs.Rules.New("client.config-missing", fmt.Sprintf("NewServiceClient found no config for service %q", serviceName), fmt.Sprintf("add `client: {%s: {endpoint: ...}}` to the config or fix the service name", serviceName))
 	}

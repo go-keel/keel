@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kratos/kratos/v3/transport"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -86,13 +85,13 @@ func testConfig(url string) *kconfig.Config {
 // The wait is necessary: a new durable receives only messages published after its creation (DeliverNewPolicy), so a
 // message published before the durable exists is permanently invisible to it. Start creates the durables and then
 // blocks, so the only signal is the server's own state, polled with a deadline.
-func startConsumerServer(t *testing.T, srv transport.Server) {
+func startConsumerServer(t *testing.T, srv *ConsumerServer) {
 	t.Helper()
 	go func() { _ = srv.Start(context.Background()) }()
 	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
 	ctx := context.Background()
 	deadline := time.Now().Add(5 * time.Second)
-	for _, cs := range srv.(*consumerServer).consumers {
+	for _, cs := range srv.consumers {
 		for {
 			if _, err := cs.c.JetStream().Consumer(ctx, cs.stream, cs.opt.Durable); err == nil {
 				break
@@ -199,7 +198,7 @@ func TestRetryThenGiveUp(t *testing.T) {
 	}
 }
 
-// Shutdown order: consumerServer.Stop stops only its own subscriptions and the connection stays usable; the connection
+// Shutdown order: ConsumerServer.Stop stops only its own subscriptions and the connection stays usable; the connection
 // is closed only by the cleanup function NewClient returns.
 func TestStopOrder_ConnectionOutlivesConsumerServerStop(t *testing.T) {
 	c, cleanup, err := NewClient(testConfig(startTestNATS(t)))
@@ -241,7 +240,7 @@ func TestStopOrder_ConnectionOutlivesConsumerServerStop(t *testing.T) {
 	}
 
 	if c.Conn().IsClosed() {
-		t.Fatal("consumerServer.Stop must not close the connection")
+		t.Fatal("ConsumerServer.Stop must not close the connection")
 	}
 	if err := p.Publish(context.Background(), NewStream("t"), "ping", "2"); err != nil {
 		t.Fatalf("publishing should still work after the subscriptions stop: %v", err)

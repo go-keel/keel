@@ -181,7 +181,7 @@ func newClient(domain, clientName string, so streamOptions) *Client {
 // interfere, and the connection keeps working after the subscriptions stop.
 //
 // It holds no subscription state: subscriptions (the consumer list, asynchronous death reports) belong to
-// consumerServer, whose Stop stops only them.
+// ConsumerServer, whose Stop stops only them.
 type Client struct {
 	domain     string
 	clientName string
@@ -366,7 +366,7 @@ func subjectCovered(have []string, want string) bool {
 // runtime.
 //
 // A stream given twice is checked once.
-func NewPublisher(cl *Client, streams ...Stream) (Publisher, error) {
+func NewPublisher(cl *Client, streams ...Stream) (*StreamPublisher, error) {
 	if len(streams) == 0 {
 		return nil, errs.Rules.Wrap(ErrNoStreams, "knats.no-streams", "NewPublisher was called with no streams", "pass every stream this process publishes to, such as NewPublisher(client, OrderStream)")
 	}
@@ -374,7 +374,7 @@ func NewPublisher(cl *Client, streams ...Stream) (Publisher, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 
-	p := &publisher{c: cl, streams: make(map[Stream]struct{}, len(streams))}
+	p := &StreamPublisher{c: cl, streams: make(map[Stream]struct{}, len(streams))}
 	for _, s := range streams {
 		if _, dup := p.streams[s]; dup {
 			continue
@@ -390,15 +390,15 @@ func NewPublisher(cl *Client, streams ...Stream) (Publisher, error) {
 	return p, nil
 }
 
-// publisher accepts only the streams checked at creation. The publish path neither creates nor checks streams: the
+// StreamPublisher is the Publisher NewPublisher builds. It accepts only the streams checked at creation. The publish path neither creates nor checks streams: the
 // listed streams were already checked, and a stream deleted or changed at runtime is reported on the spot by
 // JetStream's publish acknowledgement.
-type publisher struct {
+type StreamPublisher struct {
 	c       *Client
 	streams map[Stream]struct{}
 }
 
-func (p *publisher) Publish(ctx context.Context, stream Stream, subject string, v any) error {
+func (p *StreamPublisher) Publish(ctx context.Context, stream Stream, subject string, v any) error {
 	body, err := json.MarshalToBytes(v)
 	if err != nil {
 		return err
@@ -406,7 +406,7 @@ func (p *publisher) Publish(ctx context.Context, stream Stream, subject string, 
 	return p.PublishEx(ctx, stream, subject, Publishing{ContentType: "application/json", Body: body})
 }
 
-func (p *publisher) PublishEx(ctx context.Context, stream Stream, subject string, msg Publishing) error {
+func (p *StreamPublisher) PublishEx(ctx context.Context, stream Stream, subject string, msg Publishing) error {
 	if _, ok := p.streams[stream]; !ok {
 		return errs.Rules.Wrap(ErrStreamNotDeclared, "knats.stream-undeclared", fmt.Sprintf("Publish to stream %q, which was not passed to NewPublisher", stream.name), "add the stream to the NewPublisher call that built this Publisher")
 	}

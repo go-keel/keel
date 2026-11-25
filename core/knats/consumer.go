@@ -105,7 +105,7 @@ func (cs *consumer) adoptConsumeContext(cc jetstream.ConsumeContext) {
 	cs.cc = cc
 }
 
-// start creates the subscription. failures is passed in by consumerServer, which owns it (it is not on client, which
+// start creates the subscription. failures is passed in by ConsumerServer, which owns it (it is not on client, which
 // manages only the connection); watch uses it to report asynchronous death.
 func (cs *consumer) start(ctx context.Context, failures chan error) error {
 	initCtx, cancel := context.WithTimeout(ctx, opTimeout)

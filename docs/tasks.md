@@ -81,7 +81,7 @@ would only make tasks wait for a timeout and then run one by one.
 The worker's setup function returns a `kasynq.WorkerSetup` and registers typed handlers through the task contracts:
 
 ```go
-func NewTaskServer(indexer *service.Indexer) kasynq.WorkerSetup {
+func NewWorkerSetup(indexer *service.Indexer) kasynq.WorkerSetup {
     return func(r kasynq.HandlerRegistrar) {
         biz.IndexNote.Handle(r, indexer.IndexNote)
     }
@@ -109,10 +109,10 @@ time zone setting, and converting is the job of whoever writes the spec:
 ```go
 var DailyDigest = kasynq.NewTaskType[struct{}]("note:daily_digest")
 
-func NewSchedulerServer() kasynq.SchedulerSetup {
+func NewSchedulerSetup() kasynq.SchedulerSetup {
     return func(r kasynq.ScheduleRegistrar) {
         // 00:00 UTC. The error may be dropped here: an invalid spec, option or payload is recorded on the
-        // SchedulerServer and returned by NewSchedulerServer.
+        // SchedulerServer and returned by kasynq.NewSchedulerServer.
         _, _ = biz.DailyDigest.RegisterCron(r, "0 0 * * *", struct{}{})
     }
 }
@@ -157,16 +157,16 @@ asynq import, and typed `TaskType.Enqueue` calls run against it; the test sees t
 
 ## Assembly
 
-Build Redis first, then the servers, then pass them to `factory.New` (general rules in [Assembly](assembly.md)):
+Build Redis first, then the servers, then pass them to `keel.NewApp` (general rules in [Assembly](assembly.md)):
 
 ```go
 rdb, redisCleanup, err := kredis.NewRedis(cfg)
 taskClient := kasynq.NewTaskClient(rdb) // no cleanup: the Redis cleanup above owns the connection
 
-workerServer, err := kasynq.NewWorkerServer(cfg, rdb, server.NewTaskServer(indexer))
-schedulerServer, err := kasynq.NewSchedulerServer(cfg, rdb, server.NewSchedulerServer())
+workerServer, err := kasynq.NewWorkerServer(cfg, rdb, server.NewWorkerSetup(indexer))
+schedulerServer, err := kasynq.NewSchedulerServer(cfg, rdb, server.NewSchedulerSetup())
 
-app, err := factory.New(workerServer, schedulerServer)
+app, err := keel.NewApp(cfg, workerServer, schedulerServer)
 ```
 
 `WorkerServer` and `SchedulerServer` both implement `keel.Server`. Several worker pools with different config

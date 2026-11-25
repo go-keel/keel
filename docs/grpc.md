@@ -3,8 +3,8 @@
 Read this before adding a gRPC server or a streaming RPC, or when a gRPC health probe is rejected.
 
 `api.NewGRPCServer` builds a gRPC server on Kratos `transport/grpc`. It takes one named section of `server.grpc`, a
-register function and a middleware chain, and returns a `keel.Server` for `factory.New(...)`. A process that serves
-HTTP outside and gRPC inside builds both and passes both to `factory.New(httpSrv, grpcSrv)`.
+register function and a middleware chain, and returns a `keel.Server` for `keel.NewApp(cfg, ...)`. A process that
+serves HTTP outside and gRPC inside builds both and passes both to `keel.NewApp(cfg, httpSrv, grpcSrv)`.
 
 ```go
 func RegisterGRPC(notes *service.NoteService) api.GRPCServerRegister {

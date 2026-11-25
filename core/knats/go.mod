@@ -4,7 +4,6 @@ go 1.27.0
 
 require (
 	github.com/go-keel/keel v0.1.0
-	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/nats-io/nats.go v1.56.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -19,6 +18,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-kratos/kratos/contrib/otel/v3 v3.0.0-20261026152050-dd0fb7df1e32 // indirect
+	github.com/go-kratos/kratos/v3 v3.0.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/form/v4 v4.3.0 // indirect

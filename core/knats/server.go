@@ -10,7 +10,7 @@ import (
 	"github.com/go-keel/keel/internal/errs"
 )
 
-// NewConsumerServer wraps a set of consumers as a keel.Server, bringing them into the application lifecycle.
+// NewConsumerServer wraps a set of consumers as a server (a keel.Server), bringing them into the application lifecycle.
 //
 // Subscriptions are all registered at once through setup when the server is built, so the problem of consumers
 // registered too late cannot occur. Register inside setup returns no error;
@@ -20,8 +20,7 @@ import (
 // Stop stops only the subscriptions held here and does not touch the connection: the connection's lifetime belongs
 // entirely to the cleanup function NewClient returns, and the two do not interfere. After this server stops, other code
 // in the same process holding the Client can still publish normally.
-func NewConsumerServer(cl *Client, setup ConsumerSetup) (keel.Server, error) {
-
+func NewConsumerServer(cl *Client, setup ConsumerSetup) (*ConsumerServer, error) {
 	r := &consumerRegistrar{c: cl}
 	if setup != nil {
 		setup(r)
@@ -33,7 +32,7 @@ func NewConsumerServer(cl *Client, setup ConsumerSetup) (keel.Server, error) {
 		return nil, errs.Rules.Wrap(ErrNoConsumers, "knats.no-consumers", "NewConsumerServer's setup registered no consumers", "call Register in the ConsumerSetup, or drop the consumer server from di.go")
 	}
 
-	return &consumerServer{
+	return &ConsumerServer{
 		consumers: r.consumers,
 		failures:  make(chan error, 1),
 		stopping:  make(chan struct{}),
@@ -41,7 +40,10 @@ func NewConsumerServer(cl *Client, setup ConsumerSetup) (keel.Server, error) {
 	}, nil
 }
 
-type consumerServer struct {
+var _ keel.Server = (*ConsumerServer)(nil)
+
+// ConsumerServer runs the consumers registered in NewConsumerServer for the life of the app.
+type ConsumerServer struct {
 	consumers []*consumer
 	// failures receives the asynchronous death of a consumer; see the consumer.watch comment. After the server
 	// terminates a subscription (durable deleted, consumer kicked), nats.go merely stops the subscription: the process
@@ -55,7 +57,7 @@ type consumerServer struct {
 	stopper  gracefulStop
 }
 
-func (s *consumerServer) Start(ctx context.Context) error {
+func (s *ConsumerServer) Start(ctx context.Context) error {
 	for i, cs := range s.consumers {
 		if err := cs.start(ctx, s.failures); err != nil {
 			for _, started := range s.consumers[:i] {
@@ -80,7 +82,7 @@ func (s *consumerServer) Start(ctx context.Context) error {
 // Stop stops only the subscriptions this server holds and does not touch the connection: only the cleanup function
 // NewClient returns closes it. The stop budget comes entirely from ctx, the deadline kratos derives from
 // app.stop_timeout; kratos always provides that deadline, so setting another one is unnecessary.
-func (s *consumerServer) Stop(ctx context.Context) error {
+func (s *ConsumerServer) Stop(ctx context.Context) error {
 	ok := s.stopper.run(ctx, func() { close(s.stopping) }, func(budget context.Context) {
 		// Stop in parallel: serially the worst case is the drain limit × the number of consumers, and the ones queued
 		// later keep pulling messages while they wait. The result comes from stop's return value, not from each

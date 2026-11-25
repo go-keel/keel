@@ -139,8 +139,8 @@ err = publisher.PublishEx(ctx, NotesStream, "note.created", knats.Publishing{
 })
 ```
 
-A test double for publishing implements `knats.Publisher` (`Publish` and `PublishEx`); `EventType.Publish` accepts
-it.
+The business layer depends on the `knats.Publisher` interface; `NewPublisher` returns the `*knats.StreamPublisher`
+that implements it. A test double implements `Publish` and `PublishEx`; `EventType.Publish` accepts it.
 
 All consumers are registered once, in the setup passed to `NewConsumerServer`; `Client` has no registration method:
 
@@ -343,7 +343,7 @@ if err != nil {
     return nil, nil, err
 }
 
-// a process that consumes: create the consumer server and pass it to factory.New with the other servers
+// a process that consumes: create the consumer server and pass it to keel.NewApp with the other servers
 consumerServer, err := knats.NewConsumerServer(client, func(r knats.ConsumerRegistrar) {
     biz.NoteCreatedEvent.Handle(r, notifier.OnNoteCreated, knats.EventOptions{Durable: "notify"})
 })

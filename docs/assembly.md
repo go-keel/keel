@@ -19,7 +19,7 @@ func NewXxx(deps ...) (*Xxx, error)             // may fail
 func NewXxx(deps ...) (*Xxx, func(), error)     // the second result is the cleanup
 ```
 
-`keel.NewConfig` has the first shape, `kconfig.NewConfig` the second, `kdb.NewDB`, `kredis.NewRedis` and
+`kasynq.NewTaskClient` has the first shape, `kconfig.NewConfig` the second, `kdb.NewDB`, `kredis.NewRedis` and
 `knats.NewClient` the third.
 
 Process facilities are the exception: logs, traces and metrics are not in the graph, and no constructor takes them or
@@ -30,9 +30,10 @@ nothing for anyone downstream to hold. See "Process facilities stay out of the g
 instead of dialling: `kasynq.NewTaskClient(rdb)` accepts a `*kredis.Redis` directly, since it embeds that interface. A
 self-built dependency puts the same resource in the graph twice, and only one copy gets cleaned up at shutdown.
 
-**3. Bind by type; tell two values of the same type apart with named types.** `keel.Config` is a named type of
-`kconfig.Config`, and `keel.NewConfig` does only that conversion. Without it, two `*kconfig.Config` in the graph could
-not be told apart.
+**3. Bind by type; tell two values of the same type apart with named types.** Each Keel constructor takes the one
+`*kconfig.Config` the process loaded, so the config needs no second type. Two values of the same type are your own
+case: two databases from `kdb.NewNamedDB` are both `*kdb.DB`, so give each a named type (`type ReportDB kdb.DB`) and
+let the repo that needs it take that type. Without it, wire could not tell the two apart, and neither can a reader.
 
 **4. There are no optional dependencies.** An edge is in the graph or it is not; `nil` never means "fine without it".
 Split a conditional dependency into two providers and let `di.go` pick one:

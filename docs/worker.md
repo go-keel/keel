@@ -35,7 +35,7 @@ func NewFeedPoller(feed *biz.FeedUseCase) worker.Runner {
 }
 
 // di.go
-app, err := factory.New(worker.Server(NewFeedPoller(feedUC)))
+app, err := keel.NewApp(cfg, worker.NewServer(NewFeedPoller(feedUC)))
 ```
 
 ## Stopping

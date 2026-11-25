@@ -12,7 +12,7 @@ import (
 // the first one finishes, which makes its own shorter budget (kratos's stopTimeout, for example) meaningless. So the
 // Once only starts the stop, completion is signalled by a channel, and each caller selects independently.
 //
-// The three layers client (connection), consumer (one subscription) and consumerServer (a set of subscriptions) use
+// The three layers client (connection), consumer (one subscription) and ConsumerServer (a set of subscriptions) use
 // the same mechanism, extracted here so that changing one place cannot leave another drifting.
 type gracefulStop struct {
 	once sync.Once

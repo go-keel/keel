@@ -118,7 +118,7 @@ func TestWebSocketHandler_Echo(t *testing.T) {
 				return err
 			}
 		}
-	}))
+	}, stream.WSOptions{}))
 	defer srv.Close()
 
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")
@@ -144,7 +144,7 @@ func TestWebSocketHandler_Echo(t *testing.T) {
 func TestWebSocketHandler_NormalCloseOnReturn(t *testing.T) {
 	srv := httptest.NewServer(stream.WebSocketHandler(func(ctx context.Context, conn *websocket.Conn) error {
 		return nil // end normally right away
-	}))
+	}, stream.WSOptions{}))
 	defer srv.Close()
 
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")

@@ -17,15 +17,15 @@ client:
 ```
 
 `endpoint` is required at config load: the connection is lazy, so an empty one would fail only on the first call. A
-service name with no section returns `client.config-missing`; a nil factory, empty name or nil constructor returns
+service name with no section returns `client.config-missing`; a nil config, empty name or nil constructor returns
 `client.invalid-params`.
 
 ## Creating a client
 
 ```go
-func NewNoteClient(factory *keel.ServiceClientFactory) (notesv1.NoteServiceClient, func(), error) {
+func NewNoteClient(cfg *kconfig.Config) (notesv1.NoteServiceClient, func(), error) {
 	return keel.NewServiceClient(
-		factory,
+		cfg,
 		"notes",                       // the key under client in the config
 		notesv1.NewNoteServiceClient,  // the generated constructor
 		nil,                           // nil: mw.ClientDefault
@@ -48,11 +48,11 @@ breaker. It has no auth and no request logging. To send a token, build the chain
 called on every request:
 
 ```go
-chain := mw.ClientDefault(factory.Config().Config)
+chain := mw.ClientDefault(cfg)
 mw.WithClientAuth(chain, func() string {
 	return tokens.Current()
 })
-notes, cleanup, err := keel.NewServiceClient(factory, "notes", notesv1.NewNoteServiceClient, chain)
+notes, cleanup, err := keel.NewServiceClient(cfg, "notes", notesv1.NewNoteServiceClient, chain)
 ```
 
 Your own client middleware goes in with `InsertAfter` / `InsertBefore` on a `mw.ClientSlot*` anchor

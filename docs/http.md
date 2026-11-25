@@ -3,8 +3,8 @@
 Read this before adding an HTTP server, an HTTP endpoint, a stream, a download or a webhook.
 
 `api.NewHTTPServer` builds an HTTP server on Kratos `transport/http`. Every long-running part of a process (HTTP, gRPC,
-consumers, tasks, workers) is a `keel.Server`; `factory.New(servers...)` runs them under one lifecycle, so they start
-together and stop together on one SIGINT/SIGTERM. How to assemble them in `di.go` is in [assembly](assembly.md).
+consumers, tasks, workers) is a `keel.Server`; `keel.NewApp(cfg, servers...)` runs them under one lifecycle, so they
+start together and stop together on one SIGINT/SIGTERM. How to assemble them in `di.go` is in [assembly](assembly.md).
 
 ## Assembling a server
 
@@ -27,7 +27,7 @@ httpSrv, err := api.NewHTTPServer(
 if err != nil {
 	return err
 }
-app, err := factory.New(httpSrv, grpcSrv)
+app, err := keel.NewApp(cfg, httpSrv, grpcSrv)
 ```
 
 ```go

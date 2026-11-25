@@ -1,10 +1,10 @@
 package logging
 
-// Options defines the configuration options of the logging middleware.
+// options holds the configuration of the logging middleware; set it only through the WithXxx options.
 //
 // Request body, response body and request headers are not logged by default: bodies may contain sensitive data (PII,
 // credentials); enable them explicitly per service when needed.
-type Options struct {
+type options struct {
 	// LogRequest controls whether the request body is logged; default false.
 	// The request body is logged in the "request_body" field.
 	LogRequest bool
@@ -34,43 +34,44 @@ type Options struct {
 }
 
 // Option is the configuration function type.
-type Option func(*Options)
+type Option func(*options)
 
-// WithLogRequest sets whether the request body is logged.
+// WithLogRequest sets whether the request body is logged (field "request_body"); default false.
 func WithLogRequest(v bool) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.LogRequest = v
 	}
 }
 
-// WithLogResponse sets whether the response body is logged.
+// WithLogResponse sets whether the response body is logged (field "response_body"); default false.
 func WithLogResponse(v bool) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.LogResponse = v
 	}
 }
 
-// WithLogHeaders sets whether request headers are logged.
+// WithLogHeaders sets whether request headers are logged (field "request_headers"); default false. Credential
+// headers (Authorization, Cookie and the like) are redacted to [redacted].
 func WithLogHeaders(v bool) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.LogHeaders = v
 	}
 }
 
-// WithMaxRequestSize sets the maximum logged request body size in bytes.
+// WithMaxRequestSize sets the maximum logged request body size in bytes; default 4096.
 // The excess is truncated at a UTF-8 boundary and "...[truncated]" is appended.
 // Set to 0 for no limit.
 func WithMaxRequestSize(size int) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.MaxRequestSize = size
 	}
 }
 
-// WithMaxResponseSize sets the maximum logged response body size in bytes.
+// WithMaxResponseSize sets the maximum logged response body size in bytes; default 4096.
 // The excess is truncated at a UTF-8 boundary and "...[truncated]" is appended.
 // Set to 0 for no limit.
 func WithMaxResponseSize(size int) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.MaxResponseSize = size
 	}
 }
@@ -78,14 +79,14 @@ func WithMaxResponseSize(size int) Option {
 // WithSkipPaths sets the paths whose request/response are not logged.
 // Logs for these paths contain no request, response or headers fields.
 func WithSkipPaths(paths ...string) Option {
-	return func(o *Options) {
+	return func(o *options) {
 		o.SkipPaths = append(o.SkipPaths, paths...)
 	}
 }
 
 // defaultOptions returns the default configuration.
-func defaultOptions() *Options {
-	return &Options{
+func defaultOptions() *options {
+	return &options{
 		LogRequest:      false,
 		LogResponse:     false,
 		LogHeaders:      false,

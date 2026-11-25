@@ -1,6 +1,6 @@
 // Package appid implements the "config value → hostname → name-pid" instance ID fallback.
 //
-// Only two places need it: the root package keel (kratos.ID in AppFactory.New) and core/ksnowflake
+// Only two places need it: the root package keel (kratos.ID in NewApp) and core/ksnowflake
 // (the redis key owner in NewAuto). It lives in the repo's top-level internal/ rather than under a
 // specific component package because the root package cannot reach an internal under the core/ subtree; only the
 // top-level internal, visible to the whole repo tree, covers both places.

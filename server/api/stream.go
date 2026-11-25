@@ -235,7 +235,7 @@ func setDownloadHeaders(w http.ResponseWriter, opts DownloadOptions) {
 	w.Header().Set("Content-Disposition", disposition)
 }
 
-// WSOptions configures the raw WebSocket handler.
+// WSOptions configures the raw WebSocket handler; the zero value uses every default.
 type WSOptions struct {
 	// CheckOrigin overrides the same-origin check; nil uses gorilla's default (same origin only).
 	// Provide it explicitly when cross-origin access is needed (check an allow-list; do not blindly return true).
@@ -256,11 +256,7 @@ type WSOptions struct {
 //
 // The session ends when the handler returns or the client disconnects; a normal return sends CloseNormalClosure,
 // an error return sends CloseInternalServerErr (error details are logged only, never sent).
-func WebSocketHandler(handler func(ctx context.Context, conn *websocket.Conn) error, opts ...WSOptions) http.HandlerFunc {
-	var opt WSOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func WebSocketHandler(handler func(ctx context.Context, conn *websocket.Conn) error, opt WSOptions) http.HandlerFunc {
 	if opt.CloseTimeout <= 0 {
 		opt.CloseTimeout = 5 * time.Second
 	}
