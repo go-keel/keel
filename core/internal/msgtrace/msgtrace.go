@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -30,7 +30,7 @@ func StartSend(ctx context.Context, system, spanName, destination string, carrie
 	attrs := append([]attribute.KeyValue{
 		semconv.MessagingSystemKey.String(system),
 		semconv.MessagingDestinationNameKey.String(destination),
-		semconv.MessagingOperationPublish,
+		semconv.MessagingOperationTypeSend,
 	}, extra...)
 	ctx, span := otel.Tracer(system).Start(ctx, spanName,
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -42,15 +42,15 @@ func StartSend(ctx context.Context, system, spanName, destination string, carrie
 
 // StartReceive continues the sending side's trace from carrier and starts a consumer span.
 //
-// messaging.operation is fixed to deliver: the knats Consume callback and the kasynq ServeMux dispatch are both push
-// models (the server calls the handler), not an active pull by business code (receive in semconv v1.24.0 means the
-// pull model only).
+// messaging.operation.type is fixed to process: the knats Consume callback and the kasynq ServeMux dispatch both hand
+// the message to a handler that processes it. It is not receive, which in semconv v1.40.0 means business code pulling
+// messages itself.
 func StartReceive(ctx context.Context, system, spanName, destination string, carrier propagation.TextMapCarrier, extra ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
 	attrs := append([]attribute.KeyValue{
 		semconv.MessagingSystemKey.String(system),
 		semconv.MessagingDestinationNameKey.String(destination),
-		semconv.MessagingOperationDeliver,
+		semconv.MessagingOperationTypeProcess,
 	}, extra...)
 	return otel.Tracer(system).Start(ctx, spanName,
 		trace.WithSpanKind(trace.SpanKindConsumer),

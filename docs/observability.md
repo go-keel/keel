@@ -132,9 +132,9 @@ Keel creates spans for:
 Database and Redis instrumentation is active only with `otel.enabled: true`.
 
 Events and tasks carry the trace context in their headers (NATS headers, asynq task headers), so a trace viewer shows
-publisher and consumer as one trace. Both use OpenTelemetry semantic conventions v1.24.0: `messaging.system` (`nats`
-or `asynq`), `messaging.destination.name` (the full subject, or the queue name), `messaging.operation` (`publish` or
-`deliver`), plus `task.type` for tasks and `messaging.consumer` for event consumers. A failed processing attempt marks
+publisher and consumer as one trace. Both use OpenTelemetry semantic conventions v1.40.0: `messaging.system` (`nats`
+or `asynq`), `messaging.destination.name` (the full subject, or the queue name), `messaging.operation.type` (`send`
+or `process`), plus `task.type` for tasks and `messaging.consumer` for event consumers. A failed processing attempt marks
 the span as an error whether or not it will be retried; only success leaves the status unset.
 
 For finer spans in your own code, take a tracer from the global; this is safe even before `kotel.Setup`:

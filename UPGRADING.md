@@ -12,6 +12,19 @@ core, fetch each optional module you use again at the new tag's commit (`docs/qu
 
 ## Unreleased
 
+### Event and task spans use `messaging.operation.type`
+
+**What changed:** Keel's tracing follows OpenTelemetry semantic conventions v1.40.0 everywhere (it mixed v1.24.0 and
+v1.40.0). On knats and kasynq spans, `messaging.operation` (`publish` / `deliver`) is replaced by
+`messaging.operation.type` (`send` on the sending span, `process` on the handling span). The `kotel` resource
+attributes (`service.name`, `service.version`, `host.name`) keep their names.
+
+**Why:** one semantic-conventions version keeps attribute names consistent across database, Redis and messaging
+spans; v1.40.0 renamed the messaging operation attribute and its values.
+
+**How to apply:** update trace queries, dashboards and alerts that filter on `messaging.operation` to
+`messaging.operation.type`, with `publish` becoming `send` and `deliver` becoming `process`.
+
 ### `api.WebSocketHandler` takes one `WSOptions`; `logging.Options` is gone
 
 **What changed:** `api.WebSocketHandler(handler, opts ...WSOptions)` is `api.WebSocketHandler(handler, opts WSOptions)`;

@@ -92,8 +92,8 @@ func TestStartSendAndReceive_SharedAcrossSystems(t *testing.T) {
 				attrs []attribute.KeyValue
 				op    string
 			}{
-				{send.Attributes, "publish"},
-				{recv.Attributes, "deliver"},
+				{send.Attributes, "send"},
+				{recv.Attributes, "process"},
 			} {
 				if v, ok := attrValue(tc.attrs, "messaging.system"); !ok || v != system {
 					t.Errorf("messaging.system = %q, %v, want %q", v, ok, system)
@@ -101,8 +101,8 @@ func TestStartSendAndReceive_SharedAcrossSystems(t *testing.T) {
 				if v, ok := attrValue(tc.attrs, "messaging.destination.name"); !ok || v != "dest-1" {
 					t.Errorf("messaging.destination.name = %q, %v, want %q", v, ok, "dest-1")
 				}
-				if v, ok := attrValue(tc.attrs, "messaging.operation"); !ok || v != tc.op {
-					t.Errorf("messaging.operation = %q, %v, want %q", v, ok, tc.op)
+				if v, ok := attrValue(tc.attrs, "messaging.operation.type"); !ok || v != tc.op {
+					t.Errorf("messaging.operation.type = %q, %v, want %q", v, ok, tc.op)
 				}
 			}
 			if v, ok := attrValue(send.Attributes, "extra.key"); !ok || v != "v" {
