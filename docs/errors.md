@@ -228,13 +228,6 @@ Fix: give each handler a non-empty task type and register each type once. See [t
 Fix: add `nats: {<name>: {url: ...}}` to the config, or pass the name that already exists there. See
 [the NATS component](messaging.md).
 
-## knats.domain-missing
-
-`app.domain` is empty. knats builds stream names and subject prefixes from it, so without it publishers and consumers
-of different services would collide.
-
-Fix: set `app.domain` in the config. See [the NATS component](messaging.md).
-
 ## knats.stream-subjects
 
 A stream already exists on the server but does not cover a subject this service needs. Messages on that subject would

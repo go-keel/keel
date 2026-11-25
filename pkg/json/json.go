@@ -1,16 +1,10 @@
-// Package json is a thin wrapper over the standard library's encoding/json/v2.
+// Package json is a thin wrapper over the standard library's encoding/json, the one JSON codec Keel uses internally
+// (event payloads, task payloads, HTTP client bodies), so a value encodes the same way on every path.
 //
-// It adds only one thing to v2's default behaviour: maps are serialised with sorted keys (Deterministic). By default
-// v2 writes keys in map iteration order, so the same value serialises differently every time: logs do not line up,
-// cache or dedup keys computed from the output differ, and tests cannot assert against literals. If the framework
-// does not settle this, every user has to remember to add the option.
-//
-// Everything else follows v2's default behaviour, without backfilling v1 semantics: backfilling any of them would make
-// it a private dialect that is neither v1 nor v2, and users could not match it against the standard library docs.
-// See docs/utilities.md.
+// It adds only one thing: empty input unmarshals to a nil error. See docs/utilities.md.
 package json
 
-import jsonv2 "encoding/json/v2"
+import stdjson "encoding/json"
 
 // Marshal serialises v to a JSON string, with map keys in order.
 func Marshal(v any) (string, error) {
@@ -32,7 +26,7 @@ func MarshalOrDefault(v any, def string) string {
 
 // MarshalToBytes is like Marshal but returns a byte slice.
 func MarshalToBytes(v any) ([]byte, error) {
-	return jsonv2.Marshal(v, jsonv2.Deterministic(true))
+	return stdjson.Marshal(v)
 }
 
 // Unmarshal deserialises a JSON string into v; an empty string returns nil.
@@ -42,11 +36,11 @@ func Unmarshal(data string, v any) error {
 
 // UnmarshalBytes deserialises JSON bytes into v.
 //
-// Empty input returns nil rather than v2's unexpected EOF: message bodies and cached values are commonly empty by
-// default, and callers use this to tell "no content" from "broken content".
+// Empty input returns nil rather than encoding/json's "unexpected end of JSON input": message bodies and cached values
+// are commonly empty by default, and callers use this to tell "no content" from "broken content".
 func UnmarshalBytes(data []byte, v any) error {
 	if len(data) == 0 {
 		return nil
 	}
-	return jsonv2.Unmarshal(data, v)
+	return stdjson.Unmarshal(data, v)
 }

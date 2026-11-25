@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-keel/keel/core/internal/msgtrace"
 	"github.com/go-keel/keel/core/kconfig"
+	"github.com/go-keel/keel/internal/appid"
 	"github.com/go-keel/keel/internal/errs"
 	"github.com/go-keel/keel/pkg/json"
 )
@@ -76,7 +77,7 @@ func NewNamedClient(c *kconfig.Config, name string) (*Client, func(), error) {
 	if id := c.App.GetId(); id != "" {
 		clientName += "-" + id
 	}
-	return newClientForURL(c.App.GetDomain(), clientName, sc.Url, sc.CredsFile, streamOptions{
+	return newClientForURL(appid.Domain(c.App), clientName, sc.Url, sc.CredsFile, streamOptions{
 		MaxAge:           sc.GetStreamMaxAge().AsDuration(),
 		Replicas:         int(sc.GetStreamReplicas()),
 		DeadLetterMaxAge: sc.GetDeadLetterMaxAge().AsDuration(),
@@ -113,9 +114,6 @@ func (o streamOptions) normalized() streamOptions {
 // newClientForURL connects directly without reading the config. Unexported: the only entries are NewClient /
 // NewNamedClient, and cases that bring their own connection details use the Conn() escape hatch.
 func newClientForURL(domain, clientName, url, credsFile string, so streamOptions) (*Client, func(), error) {
-	if domain == "" {
-		return nil, nil, errs.Rules.New("knats.domain-missing", "app.domain is empty, so knats cannot build stream names and subject prefixes", "set app.domain in the config")
-	}
 	c := newClient(domain, clientName, so.normalized())
 	// The only reliable signal that the connection reached CLOSED: Drain is asynchronous, and a background timeout
 	// also ends up here.

@@ -93,8 +93,8 @@ every failing field by its config key (for example `app.node_id` or `redis["defa
 - **0 and an absent value mean "use the default".** The rules catch values an upstream library would silently replace
   with a default, clamp, or drop; the reason for each rule is in the comment on its field in `conf.proto`.
 - **Rules judge values; components judge assembly.** A missing section (`database.<name>`, `asynq.<name>`), a provider
-  that does not match the config (`app.node_id: -1` with the static node allocator), or `knats` without `app.domain`
-  is still reported by the constructor that needs it.
+  that does not match the config (`app.node_id: -1` with the static node allocator) is still reported by the
+  constructor that needs it.
 
 - **Unknown keys are ignored, as in Kratos config**: a misspelled key is dropped without an error, and a section no
   code reads is not reported. Keel does not add either check; the constraints above cover the values that would

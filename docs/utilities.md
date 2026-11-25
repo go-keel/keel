@@ -108,13 +108,11 @@ The hash string carries its parameters, so stored hashes stay verifiable if the 
 
 ## JSON (`pkg/json`)
 
-A thin wrapper over `encoding/json/v2` that adds one option: map keys are written in sorted order
-(`json.Deterministic(true)`). v2 writes map keys in iteration order, so the same value serialises differently each
-time, which breaks log comparison, cache keys computed from output, and tests against literals.
+A thin wrapper over `encoding/json`, the codec Keel uses for every JSON it encodes or decodes itself (event and task
+payloads, HTTP client bodies), so a value has one encoding on every path. Map keys come out sorted, so the same value
+always serialises the same way.
 
-- **Everything else is v2's default behaviour.** No v1 semantics are restored, so the Go documentation for
-  `encoding/json/v2` describes it exactly.
-- **Empty input unmarshals to nil error and leaves the target unchanged.** v2 reports `unexpected EOF`; an empty
+- **Empty input unmarshals to nil error and leaves the target unchanged.** `encoding/json` reports `unexpected end of JSON input`; an empty
   message body or cache value is normal, and this keeps "no content" apart from "broken content". Check the length
   first when empty must be an error.
 - **`MarshalOrDefault` is for logs** and other places where a failed encoding is not worth handling.

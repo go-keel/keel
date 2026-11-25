@@ -63,6 +63,9 @@ Publisher and consumer meet through these rules (here `app.domain` is `acme`, th
 | NATS stream name | `<domain>_<stream>` | `acme_notes` |
 | subject | `<domain>.<stream>.<topic>` | `acme.notes.note.created` |
 
+An unset `app.domain` means `keel`, the same default the snowflake and scheduler leases use in their Redis keys, so
+services that leave it unset still meet one another.
+
 The stream name uses an underscore because NATS forbids `.` in stream names while subjects are dot-separated. A
 stream name containing a dot is rejected when the publisher is created or the consumer registered
 (`ErrStreamNameDotted`), before any request reaches the server.

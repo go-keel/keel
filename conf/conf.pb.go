@@ -138,11 +138,13 @@ func (x *Config) GetAsynq() map[string]*Asynq {
 }
 
 type App struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Domain  string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // Business domain name, e.g., keel
-	Id      string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Name    string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Version string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Business domain name; stream names, subject prefixes and Redis keys start with it. Unset means "keel", so services
+	// that leave it unset still share one namespace.
+	Domain  string `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
+	Id      string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Name    string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Version string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
 	// Snowflake ID node number [0, 1023]; -1 means allocated automatically via Redis (ksnowflake.NewAuto).
 	NodeId int64 `protobuf:"varint,5,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	// The stop budget of each server, default 20 seconds: kratos derives the same deadline for every server's Stop(ctx)

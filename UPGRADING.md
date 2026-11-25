@@ -87,15 +87,18 @@ constraints into `buf.validate` rules on its proto fields. Requests generated wi
 **What changed:** `pkg/json` wraps `encoding/json` instead of `encoding/json/v2`, and it is the only JSON codec Keel
 uses itself: knats event payloads (already through `pkg/json`), kasynq task payloads and khttpclient bodies (both
 `encoding/json` before). What you see differ is the v2 to v1 change in event payloads and anywhere you call
-`pkg/json`: a nil slice or nil map encodes as `null` instead of `[]` / `{}`, and `<`, `>`, `&` are escaped as
-`<`, `>`, `&`. Decoding is more lenient (field names match case-insensitively, duplicate keys are
+`pkg/json`: a nil slice or nil map encodes as `null` instead of `[]` / `{}`; `<`, `>`, `&` are escaped as
+`\u003c`, `\u003e`, `\u0026`; and a field tagged `omitempty` is left out when it holds a zero value (`0`, `false`,
+a nil pointer) instead of only when its JSON would be empty, so `0` and `false` no longer appear while a pointer to
+an empty struct now appears as `{}`. Decoding is more lenient (field names match case-insensitively, duplicate keys are
 accepted). Empty input still unmarshals to a nil error.
 
 **Why:** two codecs meant a value encoded one way as an event and another way as a task; v1 is what the rest of the
 Go ecosystem and the standard library docs assume.
 
 **How to apply:** a consumer in another language that reads an event field as an array or object must accept `null`
-for an empty one, or initialise the slice or map before publishing. Tests that compare `pkg/json` output with a
+for an empty one, or initialise the slice or map before publishing; one that expects an `omitempty` number or
+boolean to be present must accept its absence, or drop `omitempty` from the tag. Tests that compare `pkg/json` output with a
 literal containing `[]`, `{}` or HTML characters need the new form. Events and tasks already in a stream or queue
 decode unchanged.
 

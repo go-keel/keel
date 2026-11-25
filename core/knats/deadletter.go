@@ -2,13 +2,14 @@ package knats
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/go-keel/keel/pkg/json"
 )
 
 // DeadLetterStream is the JetStream stream that keeps the server's advisories about messages a consumer gave up on:
@@ -104,6 +105,9 @@ func ReplayDeadLetter(ctx context.Context, js jetstream.JetStream, seq uint64) e
 	return err
 }
 
+// errEmptyAdvisory is a dead letter with no body; pkg/json would decode it as an empty advisory without error.
+var errEmptyAdvisory = errors.New("empty data")
+
 func parseDeadLetter(m *jetstream.RawStreamMsg) (DeadLetter, error) {
 	var a struct {
 		Stream     string `json:"stream"`
@@ -112,7 +116,11 @@ func parseDeadLetter(m *jetstream.RawStreamMsg) (DeadLetter, error) {
 		Deliveries uint64 `json:"deliveries"`
 		Reason     string `json:"reason"`
 	}
-	if err := json.Unmarshal(m.Data, &a); err != nil {
+	err := errEmptyAdvisory
+	if len(m.Data) > 0 {
+		err = json.UnmarshalBytes(m.Data, &a)
+	}
+	if err != nil {
 		return DeadLetter{}, fmt.Errorf("knats: dead letter %d is not an advisory: %w", m.Sequence, err)
 	}
 	return DeadLetter{Seq: m.Sequence, Time: m.Time, Stream: a.Stream, Consumer: a.Consumer, StreamSeq: a.StreamSeq,

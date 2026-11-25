@@ -90,15 +90,11 @@ func schedulerOpts() *asynq.SchedulerOpts {
 // the responsibility of whoever writes the cronspec.
 func NewSchedulerServer(config *kconfig.Config, rdb redis.UniversalClient, setup SchedulerSetup) (*SchedulerServer, error) {
 	scheduler := asynq.NewSchedulerFromRedisClient(rdb, schedulerOpts())
-	domain := config.App.GetDomain()
-	if domain == "" {
-		domain = "keel"
-	}
 	s := &SchedulerServer{
 		rdb:       rdb,
 		scheduler: scheduler,
 		lease: lease{
-			key:   fmt.Sprintf("%s:%s:cron_scheduler", domain, config.App.GetName()),
+			key:   fmt.Sprintf("%s:%s:cron_scheduler", appid.Domain(config.App), config.App.GetName()),
 			owner: appid.LeaseOwner(config.App),
 		},
 		stop: make(chan struct{}),

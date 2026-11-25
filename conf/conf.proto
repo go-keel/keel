@@ -25,7 +25,9 @@ message Config {
 }
 
 message App {
-  string domain = 1; // Business domain name, e.g., keel
+  // Business domain name; stream names, subject prefixes and Redis keys start with it. Unset means "keel", so services
+  // that leave it unset still share one namespace.
+  string domain = 1;
   string id = 2;
   string name = 3 [(buf.validate.field).required = true];
   string version = 4;

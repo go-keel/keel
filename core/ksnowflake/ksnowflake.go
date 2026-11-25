@@ -104,10 +104,6 @@ func NewAuto(config *kconfig.Config, rdb redis.UniversalClient) (*Generator, fun
 			fmt.Sprintf("di.go uses ksnowflake.NewAuto but app.node_id is %d", nodeID),
 			"use ksnowflake.NewStatic in di.go, or set app.node_id to -1 for automatic allocation")
 	}
-	domain := config.App.GetDomain()
-	if domain == "" {
-		domain = "keel"
-	}
 	g := &Generator{
 		leased: true,
 		now:    time.Now,
@@ -115,7 +111,7 @@ func NewAuto(config *kconfig.Config, rdb redis.UniversalClient) (*Generator, fun
 		// The application instance ID plus a per-process token (appid.LeaseOwner): the logs still match the instance,
 		// and two processes on one host never mistake each other's lease for their own.
 		instanceID: appid.LeaseOwner(config.App),
-		keyPrefix:  fmt.Sprintf("%s:%s:node_id:", domain, config.App.GetName()),
+		keyPrefix:  fmt.Sprintf("%s:%s:node_id:", appid.Domain(config.App), config.App.GetName()),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), allocateTimeout)
 	defer cancel()

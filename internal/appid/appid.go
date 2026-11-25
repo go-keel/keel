@@ -1,10 +1,10 @@
-// Package appid implements the "config value → hostname → name-pid" instance ID fallback.
+// Package appid implements the fallbacks for the app identity: the "config value → hostname → name-pid" instance ID,
+// the lease owner built on it, and the default app.domain.
 //
-// Only two places need it: the root package keel (kratos.ID in NewApp) and core/ksnowflake
-// (the redis key owner in NewAuto). It lives in the repo's top-level internal/ rather than under a
-// specific component package because the root package cannot reach an internal under the core/ subtree; only the
-// top-level internal, visible to the whole repo tree, covers both places.
-// It is not public: it is not a framework concept, just the shared implementation of two fallbacks, and has no
+// The root package keel (kratos.ID in NewApp), core/ksnowflake, core/kasynq and core/knats use it. It lives in the
+// repo's top-level internal/ rather than under a specific component package because the root package cannot reach an
+// internal under the core/ subtree; only the top-level internal, visible to the whole repo tree, covers every user.
+// It is not public: it is not a framework concept, just the shared implementation of the fallbacks, and has no
 // reason to be an API users need to know.
 package appid
 
@@ -49,4 +49,16 @@ func InstanceID(app *conf.App) string {
 // the lease TTL would then renew a lease another replica had taken in the meantime, so both would act as holder.
 func LeaseOwner(app *conf.App) string {
 	return InstanceID(app) + "/" + rand.Text()
+}
+
+// DefaultDomain is what an empty app.domain means. Stream names, subject prefixes and Redis keys all start with the
+// domain, so the components share this one default and services that leave it unset still meet one another.
+const DefaultDomain = "keel"
+
+// Domain returns app.domain, or DefaultDomain when it is unset.
+func Domain(app *conf.App) string {
+	if d := app.GetDomain(); d != "" {
+		return d
+	}
+	return DefaultDomain
 }

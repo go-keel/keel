@@ -2,7 +2,6 @@ package khttpclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/go-keel/keel/internal/errs"
+	"github.com/go-keel/keel/pkg/json"
 )
 
 // ProtoResult makes a 2xx JSON response decode into msg with protojson; use it as
@@ -34,7 +34,7 @@ import (
 // target after an error.
 func ProtoResult(msg proto.Message) any { return &protoResult{msg: msg} }
 
-// protoResult plugs into decodeResult's json.Unmarshal through json.Unmarshaler, so SetResult's behaviour for plain
+// protoResult plugs into decodeResult's JSON decoding through json.Unmarshaler, so SetResult's behaviour for plain
 // structs stays exactly the same and the two paths are chosen only by the target the caller passes explicitly. It
 // must be given to SetResult as a pointer: for a non-pointer value resty does reflect.New of a fresh zero value
 // (getPointer in resty@v2.17.2 util.go), and msg would be lost.
@@ -53,7 +53,7 @@ func (p *protoResult) UnmarshalJSON(b []byte) error {
 }
 
 // errorEnvelope holds the fixed fields of a Keel/kratos error response. The envelope has a fixed shape and no
-// generated type to decode into, so the standard library parses it, not protojson. The code in the envelope is not
+// generated type to decode into, so pkg/json parses it, not protojson. The code in the envelope is not
 // parsed: decodeError always goes by the actual HTTP status code.
 type errorEnvelope struct {
 	Reason   string            `json:"reason"`
@@ -83,15 +83,22 @@ func (e *contractError) Unwrap() error { return e.err }
 // run, and the log has no status code.
 func skipUnmarshal([]byte, any) error { return nil }
 
+// errEmptyBody is a 2xx JSON response with no body: the caller asked for a result and got none.
+var errEmptyBody = errors.New("empty body")
+
 // decodeResult decodes a 2xx JSON response into the SetResult target and reports a contractError on failure. It only
 // looks at JSON: text + SetResult is already rejected in checkResponseType; 204 is not decoded, consistent with
-// resty. Plain structs go through encoding/json; ProtoResult goes to protojson through protoResult.
+// resty. Plain structs go through pkg/json; ProtoResult goes to protojson through protoResult.
 func decodeResult(_ *resty.Client, resp *resty.Response) error {
 	if !resp.IsSuccess() || resp.Request.Result == nil || resp.StatusCode() == http.StatusNoContent ||
 		!resty.IsJSONType(resp.Header().Get("Content-Type")) {
 		return nil
 	}
-	if err := json.Unmarshal(resp.Body(), resp.Request.Result); err != nil {
+	err := errEmptyBody
+	if len(resp.Body()) > 0 {
+		err = json.UnmarshalBytes(resp.Body(), resp.Request.Result)
+	}
+	if err != nil {
 		if errors.Is(err, errNilProtoTarget) {
 			return err
 		}
@@ -113,10 +120,10 @@ func decodeError(_ *resty.Client, resp *resty.Response) error {
 		return nil
 	}
 	if resp.Request.Error != nil && resp.IsError() && resty.IsJSONType(resp.Header().Get("Content-Type")) {
-		_ = json.Unmarshal(resp.Body(), resp.Request.Error)
+		_ = json.UnmarshalBytes(resp.Body(), resp.Request.Error)
 	}
 	var env errorEnvelope
-	if err := json.Unmarshal(resp.Body(), &env); err == nil && (env.Reason != "" || env.Message != "") {
+	if err := json.UnmarshalBytes(resp.Body(), &env); err == nil && (env.Reason != "" || env.Message != "") {
 		// Consistent with kratos DefaultErrorDecoder: the actual HTTP status code wins
 		e := kerrors.New(resp.StatusCode(), env.Reason, env.Message)
 		if len(env.Metadata) > 0 {

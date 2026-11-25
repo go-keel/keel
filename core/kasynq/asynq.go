@@ -2,7 +2,6 @@ package kasynq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/go-keel/keel/core/internal/msgtrace"
 	"github.com/go-keel/keel/internal/errs"
+	"github.com/go-keel/keel/pkg/json"
 )
 
 // TaskType binds a task name to its payload type in one definition and is the recommended entry point for both
@@ -41,12 +41,15 @@ func NewTaskType[T any](name string) TaskType[T] { return TaskType[T]{name: name
 //
 // It takes an Enqueuer rather than a *TaskClient, so business tests pass a fake; *TaskClient satisfies Enqueuer.
 func (t TaskType[T]) Enqueue(ctx context.Context, e Enqueuer, p T, opts ...EnqueueOption) (*TaskInfo, error) {
-	b, err := json.Marshal(p)
+	b, err := json.MarshalToBytes(p)
 	if err != nil {
 		return nil, fmt.Errorf("kasynq: encode %s payload: %w", t.name, err)
 	}
 	return e.Enqueue(ctx, t.name, b, opts...)
 }
+
+// errEmptyPayload is a task with no payload; pkg/json would decode it as the zero value without error.
+var errEmptyPayload = errors.New("empty payload")
 
 // Handle registers a strongly typed handler.
 //
@@ -56,7 +59,11 @@ func (t TaskType[T]) Enqueue(ctx context.Context, e Enqueuer, p T, opts ...Enque
 func (t TaskType[T]) Handle(r HandlerRegistrar, fn func(ctx context.Context, p T) error) {
 	r.HandleFunc(t.name, func(ctx context.Context, payload []byte) error {
 		var p T
-		if err := json.Unmarshal(payload, &p); err != nil {
+		err := errEmptyPayload
+		if len(payload) > 0 {
+			err = json.UnmarshalBytes(payload, &p)
+		}
+		if err != nil {
 			return fmt.Errorf("kasynq: decode %s payload: %w", t.name, errors.Join(err, asynq.SkipRetry))
 		}
 		return fn(ctx, p)
@@ -71,7 +78,7 @@ func (t TaskType[T]) Handle(r HandlerRegistrar, fn func(ctx context.Context, p T
 // an encoding failure would vanish entirely: the server is built successfully but the task is never registered.
 // r.Fail closes that gap by feeding the same accumulation as Register.
 func (t TaskType[T]) RegisterCron(r ScheduleRegistrar, cronspec string, p T, opts ...EnqueueOption) (string, error) {
-	b, err := json.Marshal(p)
+	b, err := json.MarshalToBytes(p)
 	if err != nil {
 		err = fmt.Errorf("kasynq: encode %s payload: %w", t.name, err)
 		r.Fail(err)

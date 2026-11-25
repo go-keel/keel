@@ -6,9 +6,8 @@ import (
 	"github.com/go-keel/keel/pkg/json"
 )
 
-// Locks in the one option Keel adds on top of v2: map keys are output in order. v2 writes keys in iteration order by
-// default, so with enough keys a missing option almost certainly produces out-of-order output, exposed by comparing
-// against a literal.
+// Map keys are output in order, so the same value always encodes the same way; with enough keys a codec that wrote
+// them in iteration order would almost certainly be caught by comparing against a literal.
 
 func TestMarshalSortsTopLevelMapKeys(t *testing.T) {
 	m := map[string]int{"k": 1, "c": 2, "x": 3, "a": 4, "q": 5, "f": 6, "m": 7, "b": 8}
