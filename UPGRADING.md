@@ -10,7 +10,7 @@ to apply**. The core module is versioned with tags; optional modules (`core/kdb/
 `core/kasynq`, `core/knats`, `core/khttpclient`) follow the core's commit with pseudo-versions: after upgrading the
 core, fetch each optional module you use again at the new tag's commit (`docs/quickstart.md`, "Add the dependency").
 
-## Unreleased
+## v0.2.0
 
 ### `locale.Bundle` is gone; `OnLocaled` is replaced by `OnMessage` and `locale.Localize`; validation messages are protovalidate's text
 
