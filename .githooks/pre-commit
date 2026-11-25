@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fast checks only (seconds); the full gate is `make check`.
+# Fast checks only (seconds); the full gate is `make check test`.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')

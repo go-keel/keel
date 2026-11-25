@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/go-keel/keel/core/kasynq"
 	"github.com/hibiken/asynq"
-	"github.com/redis/go-redis/v9"
 )
 
 type demoPayload struct {
@@ -30,34 +27,6 @@ type fakeClient struct {
 func (f *fakeClient) Enqueue(_ context.Context, typeName string, payload []byte, opts ...kasynq.EnqueueOption) (*kasynq.TaskInfo, error) {
 	f.typeName, f.payload, f.opts = typeName, payload, len(opts)
 	return &kasynq.TaskInfo{ID: "1"}, nil
-}
-
-// Business code relies on errors.Is(err, kasynq.ErrTaskIDConflict) for idempotency: a collision means the task was
-// already enqueued. Both values must match the errors asynq actually returns from Enqueue, or the idempotency branch
-// never hits and a duplicate enqueue is retried as a failure. The test collides for real against an in-process
-// miniredis instead of proving it with hand-built error values.
-func TestEnqueue_ConflictErrorsMatchExported(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		opt  kasynq.EnqueueOption
-		want error
-	}{
-		{"TaskID", kasynq.TaskID("same"), kasynq.ErrTaskIDConflict},
-		{"Unique", kasynq.Unique(time.Minute), kasynq.ErrDuplicateTask},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mr := miniredis.RunT(t)
-			c := kasynq.NewTaskClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-			ctx := context.Background()
-			if _, err := c.Enqueue(ctx, "t", []byte("p"), tc.opt); err != nil {
-				t.Fatalf("first enqueue: %v", err)
-			}
-			_, err := c.Enqueue(ctx, "t", []byte("p"), tc.opt)
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("second enqueue: got %v, want errors.Is %v", err, tc.want)
-			}
-		})
-	}
 }
 
 // TaskType.Enqueue's glue: the task name comes from the definition, the payload is JSON-encoded and Options pass

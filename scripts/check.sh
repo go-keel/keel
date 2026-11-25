@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# make check: the one command that decides "done". Runs every check that needs no external service, module by module,
-# and stops at the first failing step (the last "==>" line names it). Real-server tests are `make integration`.
+# make check: the static checks, module by module; it runs no test (`make test`, `make integration`). It needs no
+# external service and stops at the first failing step (the last "==>" line names it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export GOWORK=off
@@ -37,8 +37,6 @@ for m in $(git ls-files -co --exclude-standard '*go.mod' | xargs -n1 dirname | L
 	(cd "$m" && go vet ./... && go vet -tags integration ./...)
 	step "$m: golangci-lint"
 	(cd "$m" && "$tmp/golangci-lint" run ./...)
-	step "$m: go test -race"
-	(cd "$m" && go test -race ./...)
 done
 
 step "buf lint and doc links"

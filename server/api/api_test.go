@@ -222,18 +222,26 @@ func TestNewGRPCServer_NoAuthSlotInChain(t *testing.T) {
 	}
 }
 
-// startIPServer starts a server via the real NewHTTPServer; /ip runs through the middleware chain and writes GetRemoteIP back.
+// startIPServer starts a server via the real NewHTTPServer. Both routes run through the middleware chain: /ip writes
+// GetRemoteIP back, /md writes the language and the metadata value named by the key query parameter, as "lang|value".
 func startIPServer(t *testing.T, chain *mw.Chain, clientIP *conf.Server_ClientIP) string {
 	t.Helper()
+	inChain := func(ctx khttp.Context, fn func(context.Context) string) error {
+		out, err := ctx.Middleware(func(c context.Context, _ any) (any, error) { return fn(c), nil })(ctx, nil)
+		if err != nil {
+			return err
+		}
+		return ctx.String(http.StatusOK, out.(string))
+	}
 	srvT, err := api.NewHTTPServer(&conf.Server_HTTP{Addr: "127.0.0.1:0", ClientIp: clientIP}, func(s *khttp.Server) {
-		s.Route("/").GET("/ip", func(ctx khttp.Context) error {
-			out, err := ctx.Middleware(func(c context.Context, _ any) (any, error) {
-				return metadata.GetRemoteIP(c), nil
-			})(ctx, nil)
-			if err != nil {
-				return err
-			}
-			return ctx.String(http.StatusOK, out.(string))
+		r := s.Route("/")
+		r.GET("/ip", func(ctx khttp.Context) error { return inChain(ctx, metadata.GetRemoteIP) })
+		r.GET("/md", func(ctx khttp.Context) error {
+			key := ctx.Query().Get("key")
+			return inChain(ctx, func(c context.Context) string {
+				md, _ := metadata.FromServerContext(c)
+				return metadata.GetAcceptLanguage(c) + "|" + md.Get(key)
+			})
 		})
 	}, chain)
 	if err != nil {
@@ -270,6 +278,30 @@ func TestNewHTTPServer_ClientIPPerServer(t *testing.T) {
 		req.Header.Add("X-Forwarded-For", "1.1.1.1")
 		req.Header.Set("X-Real-IP", "5.5.5.5")
 		req.Header.Set(metadata.KeyRemoteAddress, "9.9.9.9")
+		if code, body := getBody(t, req); code != http.StatusOK || body != tt.want {
+			t.Errorf("%s: got %d %q, want %q", tt.name, code, body, tt.want)
+		}
+	}
+}
+
+// Over a real HTTP request, the client's own x-keel-* headers reach the request context, and the language comes from
+// Accept-Language unless an incoming x-keel-accept-language overrides it.
+func TestNewHTTPServer_KeelHeadersReachContext(t *testing.T) {
+	base := startIPServer(t, mw.Default(nil), nil)
+	for _, tt := range []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{"own x-keel-* key", map[string]string{"X-Keel-E2e": "hello"}, "|hello"},
+		{"Accept-Language", map[string]string{"Accept-Language": "zh-CN"}, "zh-CN|"},
+		{"x-keel-accept-language wins", map[string]string{"Accept-Language": "zh-CN", "X-Keel-Accept-Language": "ja"}, "ja|"},
+		{"other headers are not metadata", map[string]string{"X-E2e": "hello"}, "|"},
+	} {
+		req, _ := http.NewRequest(http.MethodGet, base+"/md?key=x-keel-e2e", nil)
+		for k, v := range tt.headers {
+			req.Header.Set(k, v)
+		}
 		if code, body := getBody(t, req); code != http.StatusOK || body != tt.want {
 			t.Errorf("%s: got %d %q, want %q", tt.name, code, body, tt.want)
 		}
@@ -659,6 +691,111 @@ func TestContract_AuthRejectsAllFourTypesBeforeStream(t *testing.T) {
 
 	if got := hits.Load(); got != 0 {
 		t.Fatalf("the handler after the business middleware must not run, hits = %d", got)
+	}
+}
+
+const whoMethod = "/keel.test.v1.Who/Who"
+
+// startWhoServer starts a real gRPC server with mw.Default whose one unary method runs fn inside the middleware chain
+// and returns its result.
+func startWhoServer(t *testing.T, fn func(ctx context.Context) (string, error)) string {
+	t.Helper()
+	desc := grpc.ServiceDesc{
+		ServiceName: "keel.test.v1.Who",
+		HandlerType: (*any)(nil),
+		Methods: []grpc.MethodDesc{{
+			MethodName: "Who",
+			Handler: func(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
+				in := new(wrapperspb.StringValue)
+				if err := dec(in); err != nil {
+					return nil, err
+				}
+				h := func(ctx context.Context, _ any) (any, error) {
+					s, err := fn(ctx)
+					return wrapperspb.String(s), err
+				}
+				return interceptor(ctx, in, &grpc.UnaryServerInfo{Server: srv, FullMethod: whoMethod}, h)
+			},
+		}},
+	}
+	srvT, err := api.NewGRPCServer(&conf.Server_GRPC{Addr: "127.0.0.1:0"}, func(s *kgrpc.Server) {
+		s.RegisterService(&desc, struct{}{})
+	}, mw.Default(nil))
+	if err != nil {
+		t.Fatalf("NewGRPCServer: %v", err)
+	}
+	srv := srvT.(*kgrpc.Server)
+	ep, err := srv.Endpoint()
+	if err != nil {
+		t.Fatalf("endpoint: %v", err)
+	}
+	go func() { _ = srv.Start(context.Background()) }()
+	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
+	return ep.Host
+}
+
+// callWho calls the Who method at addr over a plain gRPC connection, sending md as incoming metadata.
+func callWho(t *testing.T, addr string, md ...string) string {
+	t.Helper()
+	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = cc.Close() })
+	ctx, cancel := context.WithTimeout(grpcmd.AppendToOutgoingContext(context.Background(), md...), 5*time.Second)
+	defer cancel()
+	var out wrapperspb.StringValue
+	if err := cc.Invoke(ctx, whoMethod, wrapperspb.String(""), &out); err != nil {
+		t.Fatalf("invoke %s: %v", whoMethod, err)
+	}
+	return out.GetValue()
+}
+
+// whoAmI reports what the chain put in the context: the client IP, a custom x-keel-* key and the language.
+func whoAmI(ctx context.Context) (string, error) {
+	md, _ := metadata.FromServerContext(ctx)
+	return metadata.GetRemoteIP(ctx) + "|" + md.Get("x-keel-e2e") + "|" + metadata.GetAcceptLanguage(ctx), nil
+}
+
+// Over a real gRPC connection the default rule trusts only the local host: from the local host the incoming
+// x-forwarded-for is read, and a forged x-keel-remote-address is dropped in favour of the address computed at this hop.
+func TestNewGRPCServer_ClientIP(t *testing.T) {
+	addr := startWhoServer(t, whoAmI)
+	for _, tt := range []struct {
+		name string
+		md   []string
+		want string
+	}{
+		{"peer address", nil, "127.0.0.1||"},
+		{"x-forwarded-for from the local host", []string{"x-forwarded-for", "1.2.3.4"}, "1.2.3.4||"},
+		{"forged x-keel-remote-address dropped", []string{metadata.KeyRemoteAddress, "9.9.9.9"}, "127.0.0.1||"},
+	} {
+		if got := callWho(t, addr, tt.md...); got != tt.want {
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+// A service calling another through a client with metadata.Client() passes its incoming x-keel-* keys on; the
+// downstream server computes the client IP itself (the caller's local address), dropping the upstream's
+// x-keel-remote-address.
+func TestMetadataClient_PropagatesKeelKeysDownstream(t *testing.T) {
+	down := startWhoServer(t, whoAmI)
+	conn, err := kgrpc.NewClient(context.Background(), kgrpc.WithEndpoint(down), kgrpc.WithMiddleware(metadata.Client()))
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	up := startWhoServer(t, func(ctx context.Context) (string, error) {
+		var out wrapperspb.StringValue
+		err := conn.Invoke(ctx, whoMethod, wrapperspb.String(""), &out)
+		return out.GetValue(), err
+	})
+
+	got := callWho(t, up, "x-keel-e2e", "from-upstream", metadata.KeyAcceptLanguage, "zh-CN",
+		"x-forwarded-for", "1.2.3.4")
+	if want := "127.0.0.1|from-upstream|zh-CN"; got != want {
+		t.Fatalf("downstream saw %q, want %q", got, want)
 	}
 }
 

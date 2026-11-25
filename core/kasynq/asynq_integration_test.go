@@ -4,6 +4,8 @@ package kasynq_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -158,5 +160,34 @@ func TestSchedulerReplicasShareOneLease(t *testing.T) {
 	}
 	if got := holder(); got != "" {
 		t.Fatalf("lease still held by %q after the holder stopped", got)
+	}
+}
+
+// Business code relies on errors.Is(err, kasynq.ErrTaskIDConflict) for idempotency: a collision means the task was
+// already enqueued. Both values must match the errors asynq actually returns from Enqueue, or the idempotency branch
+// never hits and a duplicate enqueue is retried as a failure. The test collides for real against a real Redis
+// instead of proving it with hand-built error values.
+func TestEnqueue_ConflictErrorsMatchExported(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opt  kasynq.EnqueueOption
+		want error
+	}{
+		{"TaskID", kasynq.TaskID("same"), kasynq.ErrTaskIDConflict},
+		{"Unique", kasynq.Unique(time.Minute), kasynq.ErrDuplicateTask},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := kasynq.NewTaskClient(realRedis(t))
+			ctx := context.Background()
+			// A queue of its own per run: no worker picks the tasks up and an earlier run's tasks do not collide.
+			q := kasynq.Queue(fmt.Sprintf("it-conflict-%d", time.Now().UnixNano()))
+			if _, err := c.Enqueue(ctx, "t", []byte("p"), tc.opt, q); err != nil {
+				t.Fatalf("first enqueue: %v", err)
+			}
+			_, err := c.Enqueue(ctx, "t", []byte("p"), tc.opt, q)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("second enqueue: got %v, want errors.Is %v", err, tc.want)
+			}
+		})
 	}
 }

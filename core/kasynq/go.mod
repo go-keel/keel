@@ -3,7 +3,6 @@ module github.com/go-keel/keel/core/kasynq
 go 1.27.0
 
 require (
-	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/go-keel/keel v0.1.0
 	github.com/hibiken/asynq v0.26.0
 	github.com/redis/go-redis/v9 v9.23.0
@@ -26,7 +25,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect

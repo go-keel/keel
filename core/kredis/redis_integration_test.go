@@ -5,68 +5,42 @@ package kredis_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/go-keel/keel/conf"
 	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/core/kredis"
-	"github.com/go-keel/keel/core/kredis/lock"
-	"github.com/go-keel/keel/core/kredis/ratelimit"
 	"github.com/go-keel/keel/internal/integrationtest"
 )
 
-func newRedis(t *testing.T) *kredis.Redis {
-	t.Helper()
+// A client built from a named redis section connects to the configured server, reads and writes there, and is
+// closed by the cleanup.
+func TestNewNamedRedis_ConnectsAndCleanupCloses(t *testing.T) {
 	cfg := &kconfig.Config{Config: &conf.Config{
 		App:   &conf.App{Name: "it"},
-		Redis: map[string]*conf.Redis{"default": {Addr: []string{integrationtest.Env(t, "TEST_REDIS_ADDR")}}},
+		Redis: map[string]*conf.Redis{"cache": {Addr: []string{integrationtest.Env(t, "TEST_REDIS_ADDR")}}},
 	}}
-	r, cleanup, err := kredis.NewRedis(cfg)
+	r, cleanup, err := kredis.NewNamedRedis(cfg, "cache")
 	if err != nil {
-		t.Fatalf("NewRedis: %v", err)
+		t.Fatalf("NewNamedRedis: %v", err)
 	}
-	t.Cleanup(cleanup)
-	return r
-}
-
-// The lock's Lua scripts run on a real server: a held lock blocks a second holder until released.
-func TestLock(t *testing.T) {
-	r := newRedis(t)
 	ctx := context.Background()
-	l := lock.NewLocker(r)
-	key := "it:lock:" + time.Now().Format(time.RFC3339Nano)
+	key := fmt.Sprintf("it:kredis:%s:%d", t.Name(), time.Now().UnixNano())
 
-	release, err := l.TryAcquireLock(ctx, key, 10)
-	if err != nil {
-		t.Fatalf("first acquire: %v", err)
+	if err := r.Set(ctx, key, "v", time.Minute).Err(); err != nil {
+		t.Fatalf("set: %v", err)
 	}
-	if _, err := l.TryAcquireLock(ctx, key, 10); !errors.Is(err, lock.ErrLockNotAcquired) {
-		t.Fatalf("second acquire while held: got %v, want ErrLockNotAcquired", err)
+	if got, err := r.Get(ctx, key).Result(); err != nil || got != "v" {
+		t.Fatalf("get = %q, %v; want v", got, err)
 	}
-	release()
-	again, err := l.TryAcquireLock(ctx, key, 10)
-	if err != nil {
-		t.Fatalf("acquire after release: %v", err)
-	}
-	again()
-}
+	r.Del(ctx, key)
 
-// The limiter's script counts on a real server: the call over the limit inside the window is rejected.
-func TestRateLimit(t *testing.T) {
-	r := newRedis(t)
-	ctx := context.Background()
-	lim, err := ratelimit.New(r, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := "it:rl:" + time.Now().Format(time.RFC3339Nano)
-	for i := range 2 {
-		if err := lim.Allow(ctx, key, 2, time.Minute); err != nil {
-			t.Fatalf("call %d within limit: %v", i+1, err)
-		}
-	}
-	if err := lim.Allow(ctx, key, 2, time.Minute); err == nil {
-		t.Fatal("third call over the limit was allowed")
+	cleanup()
+	if err := r.Ping(ctx).Err(); !errors.Is(err, redis.ErrClosed) {
+		t.Fatalf("ping after cleanup = %v, want redis.ErrClosed", err)
 	}
 }

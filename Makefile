@@ -2,12 +2,20 @@
 # buf plugins are pinned in each buf.gen.yaml via go run ...@version, so no global install is needed.
 # buf itself is pinned too: @latest would make different machines at different times generate different output,
 # and the generated artifacts are committed.
-# The one command that decides "done"; run it before every commit. See scripts/check.sh.
+# Done means `make check test` passes; after changing code that talks to Redis, NATS, MySQL or PostgreSQL, also
+# `make integration`.
+
+# Static checks only, no tests. See scripts/check.sh.
 .PHONY: check
 check:
 	@scripts/check.sh
 
-# Real-server tests; servers and variables are listed in scripts/integration.sh. Not part of make check.
+# Unit tests; no server and no environment variable needed. See scripts/test.sh.
+.PHONY: test
+test:
+	@scripts/test.sh
+
+# Real-server tests, unit tests included; servers and variables are listed in scripts/integration.sh.
 .PHONY: integration
 integration:
 	@scripts/integration.sh
