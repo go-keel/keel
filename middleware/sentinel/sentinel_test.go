@@ -8,11 +8,51 @@ import (
 	"testing"
 
 	kerrors "github.com/go-kratos/kratos/v3/errors"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
+	"golang.org/x/text/language"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/go-keel/keel/middleware/locale"
+	"github.com/go-keel/keel/middleware/metadata"
 	"github.com/go-keel/keel/middleware/sentinel"
 )
+
+// buildNotFound has the shape of a generated error_reason constructor (v1.ErrorNoteNotFound).
+func buildNotFound(format string, args ...any) *kerrors.Error {
+	return kerrors.NotFound("NOTE_NOT_FOUND", fmt.Sprintf(format, args...))
+}
+
+// OnMessage sends the message in the request's language, keeps the reason from the constructor, and falls back to the
+// English text when the language has no translation or the chain has no locale middleware.
+func TestGroup_OnMessage(t *testing.T) {
+	b := i18n.NewBundle(language.English)
+	if err := b.AddMessages(language.MustParse("zh-CN"), &i18n.Message{ID: "NoteNotFound", Other: "笔记不存在。"}); err != nil {
+		t.Fatal(err)
+	}
+	msg := &i18n.Message{ID: "NoteNotFound", Other: "This note does not exist."}
+	h := sentinel.NewGroup().OnMessage(errNotFound, msg, buildNotFound).Middleware()(
+		func(context.Context, any) (any, error) { return nil, fmt.Errorf("load: %w", errNotFound) })
+	run := func(lang string) *kerrors.Error {
+		t.Helper()
+		ctx := context.Background()
+		if lang != "" {
+			var err error
+			if ctx, err = metadata.Set(ctx, metadata.KeyAcceptLanguage, lang); err != nil {
+				t.Fatal(err)
+			}
+			return kerrors.FromError(func() error { _, err := locale.Server(b)(h)(ctx, nil); return err }())
+		}
+		_, err := h(ctx, nil)
+		return kerrors.FromError(err)
+	}
+	for lang, want := range map[string]string{"zh-CN": "笔记不存在。", "ja": msg.Other, "": msg.Other} {
+		got := run(lang)
+		if got.Code != 404 || got.Reason != "NOTE_NOT_FOUND" || got.Message != want {
+			t.Errorf("lang %q: got %d %s %q, want 404 NOTE_NOT_FOUND %q", lang, got.Code, got.Reason, got.Message, want)
+		}
+	}
+}
 
 var (
 	errNotFound = errors.New("record not found")
@@ -94,7 +134,8 @@ func TestGroup_InvalidRegistrationRecordsError(t *testing.T) {
 	cases := map[string]func(*sentinel.Group){
 		"On nil sentinel":       func(g *sentinel.Group) { g.On(nil, sentinel.NotFound("NOTE_NOT_FOUND")) },
 		"On nil handler":        func(g *sentinel.Group) { g.On(errNotFound, nil) },
-		"OnLocaled nil handler": func(g *sentinel.Group) { g.OnLocaled(errNotFound, nil) },
+		"OnMessage nil message": func(g *sentinel.Group) { g.OnMessage(errNotFound, nil, buildNotFound) },
+		"OnMessage nil build":   func(g *sentinel.Group) { g.OnMessage(errNotFound, &i18n.Message{ID: "X", Other: "x"}, nil) },
 		"Default nil handler":   func(g *sentinel.Group) { g.Default(nil) },
 	}
 	for name, register := range cases {

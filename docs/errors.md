@@ -382,10 +382,9 @@ Fix: mount each preset once per chain, and give each inserted middleware a name 
 
 ## mw.locale-bundle-missing
 
-`mw.WithLocale` was given a nil `*locale.Bundle`, or one whose inner `i18n.Bundle` is nil. Every request would panic
-on it.
+`mw.WithLocale` was given a nil `*i18n.Bundle`. Every request would panic on it.
 
-Fix: pass the bundle built by `locale.NewBundle` from a loaded `i18n.Bundle`, or drop the `WithLocale` call. See
+Fix: pass the go-i18n bundle with your message files loaded, or drop the `WithLocale` call. See
 [middleware chains](middleware.md).
 
 ## mw.sentinel-group-missing
@@ -404,11 +403,12 @@ Fix: name the key `x-keel-<name>`, such as `x-keel-notebook-id`. See [metadata](
 
 ## sentinel.rule-invalid
 
-A `sentinel.Group` registration had a nil sentinel error or a nil handler (`On`, `OnLocaled`, `Default`). The mapping
-would never run, so the business error would reach the caller as an internal error. `mw.WithSentinel` records the
-group's errors on the chain.
+A `sentinel.Group` registration had a nil sentinel error or a nil handler (`On`, `Default`), or `OnMessage` had a nil
+sentinel error, message or build function. The mapping would never run, so the business error would reach the caller as an
+internal error. `mw.WithSentinel` records the group's errors on the chain.
 
-Fix: pass a non-nil sentinel error and a non-nil handler, or drop the call. See [middleware chains](middleware.md).
+Fix: pass a non-nil sentinel error, handler, message and build function, or drop the call. See
+[middleware chains](middleware.md).
 
 ## api.http-config-missing
 

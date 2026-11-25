@@ -12,6 +12,29 @@ core, fetch each optional module you use again at the new tag's commit (`docs/qu
 
 ## Unreleased
 
+### `locale.Bundle` is gone; `OnLocaled` is replaced by `OnMessage` and `locale.Localize`; validation messages are protovalidate's text
+
+**What changed:**
+- `locale.Bundle` and `locale.NewBundle` are gone: `mw.WithLocale` and `locale.Server` take go-i18n's `*i18n.Bundle`.
+- `sentinel.Group.OnLocaled` is removed. `OnMessage(sentinel, msg, build)` covers the common case;
+  `locale.Localize(ctx, msg)` translates with fallback anywhere else.
+- A `VALIDATOR` error's message is protovalidate's text, naming the field and the constraint, in English, as Kratos's
+  validate middleware returns it. Before, it was one translated sentence per kind of violation (English, Chinese,
+  Japanese) with no field name.
+
+**Why:** one way to load, match and translate. The wrapper added nothing over go-i18n; every service rewrote the same
+"translate, fall back to English" handler. A validation failure means the calling code skipped a check its client
+should make, so the message is for that code's developer, who needs the field name; translating it was Keel choosing
+languages for its users.
+
+**How to apply:**
+- Pass the go-i18n bundle itself to `WithLocale` (drop the `locale.NewBundle(b)` wrapping).
+- Replace each `OnLocaled(err, handler)` that only translates a message into a generated error with
+  `OnMessage(err, &i18n.Message{ID: ..., Other: ...}, v1.ErrorXxx)`; others become `On(err, handler)` calling
+  `locale.Localize` or `locale.FromContext`.
+- Clients that showed the `VALIDATOR` message to end users: check the input in the client first, and show your own
+  text for a `VALIDATOR` error.
+
 ### Event and task spans use `messaging.operation.type`
 
 **What changed:** Keel's tracing follows OpenTelemetry semantic conventions v1.40.0 everywhere (it mixed v1.24.0 and

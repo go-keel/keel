@@ -43,7 +43,7 @@ func NewGroup() *Group {
 func (g *Group) Err() error { return g.err }
 
 func (g *Group) invalid(what string) {
-	g.err = errors.Join(g.err, errs.Rules.New("sentinel.rule-invalid", what, "pass a non-nil sentinel error and a non-nil handler, or drop the call"))
+	g.err = errors.Join(g.err, errs.Rules.New("sentinel.rule-invalid", what, "pass a non-nil sentinel error, handler, message and build function, or drop the call"))
 }
 
 // On registers a handler for errors matching sentinel via errors.Is. A nil sentinel or handler records an error
@@ -57,19 +57,17 @@ func (g *Group) On(sentinel error, handler HandlerFunc) *Group {
 	return g
 }
 
-// OnLocaled registers a handler receiving a locale-aware i18n.Localizer from ctx.
-// Falls back to InternalWithLog if no localizer is present.
-func (g *Group) OnLocaled(sentinel error, handler func(ctx context.Context, loc *i18n.Localizer, err error) error) *Group {
-	if handler == nil {
-		return g.On(sentinel, nil)
+// OnMessage registers the common localized mapping: errors matching sentinel become build(<msg in the request's
+// language>), where build is a typed error constructor generated from an error_reason enum (v1.ErrorNoteNotFound).
+// Translation falls back like locale.Localize. Write msg as a literal so goi18n extract finds it. A nil sentinel, msg
+// or build records an error returned by Err.
+func (g *Group) OnMessage(sentinel error, msg *i18n.Message, build func(format string, args ...any) *kerrors.Error) *Group {
+	if sentinel == nil || msg == nil || build == nil {
+		g.invalid("sentinel.Group.OnMessage was called with a nil sentinel, a nil message or a nil build function")
+		return g
 	}
-	return g.On(sentinel, func(ctx context.Context, err error) error {
-		loc, ok := locale.FromContext(ctx)
-		if !ok {
-			slog.WarnContext(ctx, "sentinel: localizer not in context, using default", "error", err)
-			return InternalWithLog(ctx, err)
-		}
-		return handler(ctx, loc, err)
+	return g.On(sentinel, func(ctx context.Context, _ error) error {
+		return build("%s", locale.Localize(ctx, msg))
 	})
 }
 
@@ -168,7 +166,7 @@ func PreconditionFailed(reason string) HandlerFunc {
 // `errors.New` value in the biz layer (see docs/middleware.md "Sentinel"),
 // at the very bottom of the chain, so unwrapping to the end yields its own sentence.
 //
-// ponytail: follows only the Unwrap() error chain. A multi-error from errors.Join returns nil from Unwrap, so the
+// It follows only the Unwrap() error chain. A multi-error from errors.Join returns nil from Unwrap, so the
 // merged full text is taken as is; deal with it when multi-sentinels are actually used, and then the right move is
 // to pass the message explicitly rather than guess.
 func rootMessage(err error) string {

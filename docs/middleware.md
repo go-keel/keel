@@ -92,7 +92,7 @@ A `Default` chain with every server preset, after the server filled auth:
 6. Metadata: Accept-Language, client IP, `x-keel-*` keys ([metadata](metadata.md)).
 7. Locale (`WithLocale`): needs the language from metadata.
 8. Auth: pass-through, or JWT verification when the server's auth is on. It reads the token from the request itself.
-9. Validate: protovalidate on the request message; picks its message language from metadata.
+9. Validate: protovalidate on the request message.
 10. Sentinel (`WithSentinel`): can use the localizer from locale.
 
 ## Logging
@@ -135,19 +135,26 @@ mw.WithLogging(chain,
 
 ## Locale
 
-`WithLocale` puts a go-i18n localizer for the request's Accept-Language into the context; without a matching
-language, the bundle's default language is used. Build the bundle from go-i18n and wrap it with `locale.NewBundle`:
+`WithLocale` puts a go-i18n localizer for the request's Accept-Language into the context. Matching is go-i18n's: q
+weights count, and a request with no supported language gets the bundle's default language, English. Bundles and
+localizers are go-i18n's own types.
+
+Build the bundle and load your message files with go-i18n itself; Keel does not read files, so the file format and
+naming are yours. Keel sends no translated text of its own.
 
 ```go
 //go:embed *.toml
 var localeFS embed.FS
 
-func NewBundle() *locale.Bundle {
+func NewBundle() *i18n.Bundle {
 	b := i18n.NewBundle(language.English) // the fallback language
 	b.RegisterUnmarshalFunc("toml", toml.Unmarshal)
-	b.LoadMessageFileFS(localeFS, "active.en.toml")
-	b.LoadMessageFileFS(localeFS, "active.zh-CN.toml")
-	return locale.NewBundle(b)
+	for _, name := range []string{"active.en.toml", "active.zh-CN.toml"} {
+		if _, err := b.LoadMessageFileFS(localeFS, name); err != nil {
+			panic(err) // embedded files: a failure means the file is broken, so fail startup
+		}
+	}
+	return b
 }
 ```
 
@@ -160,21 +167,25 @@ one = "{{.Count}} note"
 other = "{{.Count}} notes"
 ```
 
-Read the localizer with `locale.FromContext(ctx)` and handle the `false` case, which means the chain has no locale.
 Message files use go-i18n syntax, including CLDR plural forms (`zero`, `one`, `two`, `few`, `many`, `other`; `other`
-is required). A new language is a new `active.<tag>.toml` loaded into the bundle.
+is required).
+
+Translate with `locale.Localize(ctx, &i18n.Message{ID: "NoteNotFound", Other: "This note does not exist."})`. It never
+fails: a language without the message gets the English text (the bundle's English, then `Other`); a chain without
+locale gets `Other`; a template that does not parse is logged and gets `Other`. Write the message as a literal with its
+English text, so `goi18n extract` finds it. For template data or plural forms, take go-i18n's localizer with
+`locale.FromContext(ctx)` and handle the `false` case, which means the chain has no locale.
 
 ## Validate
 
 The validate slot checks every proto request message against its protovalidate rules, so declaring a rule in proto is
 all it takes; the rule syntax is protovalidate's own.
 
-A failure returns 400 with reason `VALIDATOR`. The message is one sentence for the end user, chosen by the kind of the
-first violation (length, range, format, required, other; an empty value that breaks a minimum counts as required),
-without field names or rule text. Keel ships it in English, Chinese and Japanese so basic field checks need no
-translations from you; the language is the first supported one in Accept-Language, ignoring q weights, falling back to
-English. The full violation list stays in the error's cause and reaches the log. Sentinel passes `VALIDATOR` errors
-through unchanged.
+A failure returns 400 with reason `VALIDATOR` and protovalidate's own text as the message, as Kratos's validate
+middleware does: it names the field and the constraint (`validation error: title: value length must be at least 1
+characters`), in English whatever the request's language. It is for developers: clients check input before sending
+it, so a `VALIDATOR` error means the calling code has a bug, and the field name tells its developer where. The original
+error stays in the cause. Sentinel passes `VALIDATOR` errors through unchanged.
 
 ## Sentinel
 
@@ -188,9 +199,7 @@ func NewNoteErrors() *sentinel.Group {
 	return sentinel.NewGroup().
 		On(biz.ErrNoteNotFound, sentinel.NotFound("NOTE_NOT_FOUND")).
 		On(biz.ErrNoteLocked, sentinel.PreconditionFailed("NOTE_LOCKED")).
-		OnLocaled(biz.ErrNoteTooLong, func(ctx context.Context, l *i18n.Localizer, err error) error {
-			return errors.BadRequest("NOTE_TOO_LONG", l.MustLocalize(&i18n.LocalizeConfig{MessageID: "NoteTooLong"}))
-		})
+		OnMessage(biz.ErrNoteTooLong, &i18n.Message{ID: "ErrNoteTooLong", Other: "This note is too long."}, v1.ErrorNoteTooLong)
 }
 ```
 
@@ -200,8 +209,10 @@ func NewNoteErrors() *sentinel.Group {
   resource's state rules it out) send the sentinel's own text as the message, not the wrapped error's full text. The
   message reaches the end user as it is, so write the sentinel text as a sentence for them; context added with `%w` is
   for developers and stays in the log.
-- `OnLocaled` hands the handler the request's localizer. With no locale on the chain it logs a warning and answers
-  with `sentinel.InternalWithLog` (500), not a handler set with `Default`, so mount `WithLocale` when you use it.
+- `OnMessage(sentinel, msg, build)` sends `msg` in the request's language through `build`, a constructor generated from
+  an `error_reason` enum (`v1.ErrorNoteTooLong`), so the reason comes from the contract. Translation falls back like
+  `locale.Localize`. For anything else (template data, a hand-built error) use `On` with a handler that calls
+  `locale.Localize` or `locale.FromContext`.
 - `Default(handler)` replaces the fallback for unmatched errors.
 
 Unmatched errors, in order: a Kratos error carrying details (from a downstream service) passes through unchanged;

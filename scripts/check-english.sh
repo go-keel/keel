@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails when a tracked text file contains Chinese characters or full-width punctuation, outside the paths listed in
-# scripts/english-allow.list. This repository's own docs, comments and messages are English; end-user localisation
-# and deliberate test data are the listed exceptions, each with its reason.
+# scripts/english-allow.list. This repository's own docs, comments and messages are English; deliberate test
+# data and the like are the listed exceptions, each with its reason.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,8 +33,8 @@ while IFS= read -r -d '' f; do
 done < <(git ls-files -z --cached --others --exclude-standard)
 
 if [ "$found" -ne 0 ]; then
-	echo "Chinese text above: this repository's own content is English. Translate it, or, for end-user localisation or"
-	echo "deliberate test data, add the path to $allow with the reason."
+	echo "Chinese text above: this repository's own content is English. Translate it, or, for deliberate test data,"
+	echo "add the path to $allow with the reason."
 	exit 1
 fi
 echo "english ok"

@@ -19,7 +19,6 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/go-keel/keel/middleware/locale"
 	"github.com/go-keel/keel/middleware/metadata"
 	"github.com/go-keel/keel/middleware/sentinel"
 	keelpb "github.com/go-keel/keel/proto/keel/v1"
@@ -50,15 +49,11 @@ func TestWithRatelimit_InsertsAfterRecovery(t *testing.T) {
 // A missing bundle fails startup through the chain error instead of installing a locale middleware that panics on
 // every request.
 func TestWithLocale_MissingBundleRecordsError(t *testing.T) {
-	for name, b := range map[string]*locale.Bundle{"nil bundle": nil, "nil inner bundle": locale.NewBundle(nil)} {
-		t.Run(name, func(t *testing.T) {
-			chain := Default(nil)
-			WithLocale(chain, b)
-			wantRule(t, chain.Err(), "mw.locale-bundle-missing")
-			if hasSlot(chain.slots, SlotLocale) {
-				t.Fatal("locale slot mounted for a missing bundle, want none")
-			}
-		})
+	chain := Default(nil)
+	WithLocale(chain, nil)
+	wantRule(t, chain.Err(), "mw.locale-bundle-missing")
+	if hasSlot(chain.slots, SlotLocale) {
+		t.Fatal("locale slot mounted for a missing bundle, want none")
 	}
 }
 
@@ -81,7 +76,7 @@ func TestPresetMountedTwiceRecordsError(t *testing.T) {
 	cases := map[string]func(*Chain){
 		"WithSentinel":  func(c *Chain) { WithSentinel(c, sentinel.NewGroup()) },
 		"WithRatelimit": func(c *Chain) { WithRatelimit(c) },
-		"WithLocale":    func(c *Chain) { WithLocale(c, locale.NewBundle(i18n.NewBundle(language.English))) },
+		"WithLocale":    func(c *Chain) { WithLocale(c, i18n.NewBundle(language.English)) },
 	}
 	for name, mount := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -206,102 +201,22 @@ func fieldRequest(t *testing.T, name string, age int32, mail, must string) proto
 	return m
 }
 
-// runValidate validates r through validateMiddleware; a non-empty lang goes into the Accept-Language metadata.
-func runValidate(t *testing.T, lang string, r proto.Message) error {
-	t.Helper()
+// The message is protovalidate's own text, as kratos's validate middleware returns it: it names the field and the
+// constraint, so the developer reading it knows what to fix, and it is the same whatever language the request asks for.
+func TestValidateMessage_NamesFieldAndConstraint(t *testing.T) {
 	v, err := protovalidate.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	h := validateMiddleware(func(x any) error { return v.Validate(x.(proto.Message)) })(
 		func(ctx context.Context, req any) (any, error) { return "ok", nil })
-	ctx := context.Background()
-	if lang != "" {
-		if ctx, err = metadata.Set(ctx, metadata.KeyAcceptLanguage, lang); err != nil {
-			t.Fatal(err)
-		}
+	ctx, err := metadata.Set(context.Background(), metadata.KeyAcceptLanguage, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, err = h(ctx, r)
-	return err
-}
-
-// The outgoing message is a sentence users read: it names which category is wrong, without field names or English technical wording.
-func TestValidateMessage_ByFamily(t *testing.T) {
-	cases := []struct {
-		name string
-		r    proto.Message
-		want string
-	}{
-		{"length", fieldRequest(t, "toolong", 20, "a@b.co", "x"), "长度"},
-		{"range", fieldRequest(t, "abc", 3, "a@b.co", "x"), "范围"},
-		{"format", fieldRequest(t, "abc", 20, "not-an-email", "x"), "格式"},
-		{"required", fieldRequest(t, "abc", 20, "a@b.co", ""), "必填"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			msg := kerrors.FromError(runValidate(t, "zh-CN,zh;q=0.9", c.r)).GetMessage()
-			if !strings.Contains(msg, c.want) {
-				t.Fatalf("message %q should mention %q", msg, c.want)
-			}
-			for _, leak := range []string{"validation error", "name", "age", "mail", "must", "value length"} {
-				if strings.Contains(msg, leak) {
-					t.Fatalf("message %q leaks %q", msg, leak)
-				}
-			}
-		})
-	}
-}
-
-func TestValidateMessage_Language(t *testing.T) {
-	r := fieldRequest(t, "toolong", 20, "a@b.co", "x")
-	msg := func(lang string) string { return kerrors.FromError(runValidate(t, lang, r)).GetMessage() }
-	zh, ja, en := msg("zh-CN"), msg("ja-JP,ja;q=0.9"), msg("en-US")
-	if !strings.Contains(zh, "长度") || !strings.Contains(ja, "長さ") || !strings.Contains(en, "too short or too long") {
-		t.Fatalf("zh=%q ja=%q en=%q", zh, ja, en)
-	}
-	// No language, or an unsupported one, falls back to English.
-	if msg("") != en || msg("fr-FR") != en {
-		t.Fatalf("fallback should be English: %q / %q", msg(""), msg("fr-FR"))
-	}
-}
-
-// Several violations produce one sentence: fix one thing first, not a screen of technical wording; all violations stay in the cause for the logs.
-func TestValidateMessage_OneSentence(t *testing.T) {
-	err := runValidate(t, "zh", fieldRequest(t, "toolong", 3, "bad", ""))
-	if n := strings.Count(kerrors.FromError(err).GetMessage(), "。"); n != 1 {
-		t.Fatalf("want exactly one sentence, got %q", kerrors.FromError(err).GetMessage())
-	}
-	if kerrors.FromError(err).Unwrap() == nil {
-		t.Fatal("full violations must stay in cause")
-	}
-}
-
-// violationErr builds one violation directly: it only cares about "rule ID + field value → which category", with no proto to assemble.
-func violationErr(ruleID string, val protoreflect.Value) error {
-	return &protovalidate.ValidationError{Violations: []*protovalidate.Violation{{
-		Proto:      &validate.Violation{RuleId: proto.String(ruleID)},
-		FieldValue: val,
-	}}}
-}
-
-// Rule IDs the validation library gives to rules bounded at both ends contain an underscore (int32.gte_lte) and must also map to "range".
-func TestValidateFamily_CombinedRange(t *testing.T) {
-	for _, id := range []string{"int32.gte_lte", "int64.gt_lt", "uint32.gte_lte_exclusive", "double.gt_lte"} {
-		if got := validateFamily(violationErr(id, protoreflect.ValueOfInt32(0))); got != "range" {
-			t.Errorf("%s → %s, want range", id, got)
-		}
-	}
-}
-
-// An empty value violating "at least N" means not filled in, not a wrong length.
-func TestValidateFamily_EmptyIsRequired(t *testing.T) {
-	if got := validateFamily(violationErr("string.min_len", protoreflect.ValueOfString(""))); got != "required" {
-		t.Errorf("empty string min_len → %s, want required", got)
-	}
-	if got := validateFamily(violationErr("string.min_len", protoreflect.ValueOfString("a"))); got != "length" {
-		t.Errorf("non-empty string min_len → %s, want length", got)
-	}
-	if got := validateFamily(violationErr("string.max_len", protoreflect.ValueOfString(""))); got != "length" {
-		t.Errorf("max_len should stay length, got %s", got)
+	_, err = h(ctx, fieldRequest(t, "toolong", 20, "a@b.co", "x"))
+	msg := kerrors.FromError(err).GetMessage()
+	if !strings.Contains(msg, "name: ") || !strings.Contains(msg, "at most 3") {
+		t.Fatalf("message %q should name the field and the constraint", msg)
 	}
 }

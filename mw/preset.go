@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"buf.build/go/protovalidate"
 	otelmetrics "github.com/go-kratos/kratos/contrib/otel/v3/metrics"
@@ -15,10 +14,10 @@ import (
 	"github.com/go-kratos/kratos/v3/middleware/circuitbreaker"
 	"github.com/go-kratos/kratos/v3/middleware/ratelimit"
 	"github.com/go-kratos/kratos/v3/middleware/recovery"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/errs"
@@ -115,11 +114,10 @@ func WithTrustedMetadata(chain *Chain) {
 
 // WithLocale inserts the locale middleware right after SlotMetadata so the
 // localizer is available to downstream middleware (e.g. sentinel) and handlers.
-// A nil bundle (or inner i18n.Bundle) records an error on the chain: every request would otherwise panic on it at
-// serve time.
-func WithLocale(chain *Chain, bundle *locale.Bundle) {
-	if bundle == nil || bundle.Bundle == nil {
-		chain.err = errors.Join(chain.err, errs.Rules.New("mw.locale-bundle-missing", "mw.WithLocale was given a nil locale bundle", "pass the *locale.Bundle built by locale.NewBundle, or drop the WithLocale call"))
+// A nil bundle records an error on the chain: every request would otherwise panic on it at serve time.
+func WithLocale(chain *Chain, bundle *i18n.Bundle) {
+	if bundle == nil {
+		chain.err = errors.Join(chain.err, errs.Rules.New("mw.locale-bundle-missing", "mw.WithLocale was given a nil bundle", "pass the go-i18n bundle with the service's message files loaded, or drop the WithLocale call"))
 		return
 	}
 	chain.InsertAfter(SlotMetadata, locale.Server(bundle), SlotLocale)
@@ -192,7 +190,7 @@ func clientMetrics(name string) (Middleware, error) {
 		otelmetrics.Client)
 }
 
-// protovalidateFunc adapts protovalidate to the kratos validate middleware.
+// protovalidateFunc adapts protovalidate to validateMiddleware.
 // Initialising without options does not fail in practice; on failure, as with buildMetrics, it logs and returns an error, never panics.
 func protovalidateFunc() (func(any) error, error) {
 	v, err := protovalidate.New()
@@ -208,140 +206,15 @@ func protovalidateFunc() (func(any) error, error) {
 	}, nil
 }
 
-// validateMessages are the sentences users read when validation fails: they say which category is wrong, without the
-// field name or the rule text (those are for developers and stay in the cause for the logs). Basic field-format
-// validation should not require every business repo to supply its own localisation, so the framework ships en / zh /
-// ja; other languages fall back to English.
-var validateMessages = map[string]map[string]string{
-	"length": {
-		"en": "Some input is too short or too long. Please correct it and try again.",
-		"zh": "有输入内容的长度不符合要求，请修改后重试。",
-		"ja": "入力内容の長さが条件に合っていません。修正してもう一度お試しください。",
-	},
-	"range": {
-		"en": "Some input is outside the allowed range. Please correct it and try again.",
-		"zh": "有输入内容超出了允许的范围，请修改后重试。",
-		"ja": "入力内容が許可された範囲外です。修正してもう一度お試しください。",
-	},
-	"format": {
-		"en": "Some input has the wrong format. Please correct it and try again.",
-		"zh": "有输入内容的格式不正确，请修改后重试。",
-		"ja": "入力内容の形式が正しくありません。修正してもう一度お試しください。",
-	},
-	"required": {
-		"en": "Some required input is missing. Please fill it in and try again.",
-		"zh": "有必填内容没有填写，请补全后重试。",
-		"ja": "必須項目が入力されていません。入力してもう一度お試しください。",
-	},
-	"other": {
-		"en": "The request is not valid. Please check your input and try again.",
-		"zh": "请求内容不符合要求，请检查后重试。",
-		"ja": "リクエストの内容が正しくありません。入力を確認してもう一度お試しください。",
-	},
-}
-
-// validateFamily classifies by protovalidate rule ID. Standard rule IDs look like "string.max_len", "int32.gte",
-// "string.email", "required"; range rules bounded at both ends contain an underscore ("int32.gte_lte",
-// "int32.gt_lte_exclusive"); rule IDs from Keel itself or written by the business go to other.
-func validateFamily(err error) string {
-	var ve *protovalidate.ValidationError
-	if !errors.As(err, &ve) || len(ve.Violations) == 0 || ve.Violations[0].Proto == nil {
-		return "other"
-	}
-	v := ve.Violations[0]
-	id := v.Proto.GetRuleId()
-	switch {
-	case id == "required":
-		return "required"
-	case hasRuleSuffix(id, "min_len", "min_bytes", "min_items", "min_pairs") && emptyValue(v.FieldValue):
-		// An empty value violating "at least N" means not filled in, not a wrong length.
-		return "required"
-	case hasRuleSuffix(id, "min_len", "max_len", "len", "min_bytes", "max_bytes", "len_bytes", "min_items", "max_items", "min_pairs", "max_pairs"):
-		return "length"
-	case isRangeRule(id) || hasRuleSuffix(id, "const", "in", "not_in", "defined_only"):
-		return "range"
-	case hasRuleSuffix(id, "email", "hostname", "ip", "ipv4", "ipv6", "uri", "uri_ref", "address", "uuid", "tuuid", "pattern", "prefix", "suffix", "contains", "not_contains"):
-		return "format"
-	}
-	return "other"
-}
-
-// isRangeRule reports whether the rule name consists only of gt / gte / lt / lte (plus the exclusive suffix of ranges), such as "int32.gte_lte".
-func isRangeRule(id string) bool {
-	_, last, ok := strings.Cut(id, ".")
-	if !ok || last == "" {
-		return false
-	}
-	for _, part := range strings.Split(last, "_") {
-		switch part {
-		case "gt", "gte", "lt", "lte", "exclusive":
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// emptyValue reports whether a string is empty or a list or map has no elements. An invalid value (field not obtained) is not empty.
-func emptyValue(v protoreflect.Value) bool {
-	if !v.IsValid() {
-		return false
-	}
-	switch x := v.Interface().(type) {
-	case string:
-		return x == ""
-	case []byte:
-		return len(x) == 0
-	case protoreflect.List:
-		return x.Len() == 0
-	case protoreflect.Map:
-		return x.Len() == 0
-	}
-	return false
-}
-
-func hasRuleSuffix(id string, names ...string) bool {
-	_, last, _ := strings.Cut(id, ".")
-	for _, n := range names {
-		if last == n || strings.HasPrefix(last, n+".") {
-			return true
-		}
-	}
-	return false
-}
-
-// validateLang picks the first supported language from Accept-Language: in order of appearance, ignoring q weights
-// (browsers already sort by preference); if none is supported it falls back to English.
-func validateLang(header string) string {
-	for _, part := range strings.Split(header, ",") {
-		tag, _, _ := strings.Cut(strings.TrimSpace(part), ";")
-		primary, _, _ := strings.Cut(strings.ToLower(tag), "-")
-		switch primary {
-		case "zh", "ja", "en":
-			return primary
-		}
-	}
-	return "en"
-}
-
-// validateMiddleware replaces kratos's built-in validate middleware. The error shape is unchanged (400, reason
-// VALIDATOR, cause keeps the original protovalidate error; sentinel and the frontend's "check by reason" depend on
-// it); only the message is no longer the validation library's English technical text but one plain sentence
-// localised by Accept-Language. Old-style requests with their own Validate() method also go through here and all
-// map to other.
+// validateMiddleware replaces kratos's built-in validate middleware, which also calls a Validate() method on the
+// request (protoc-gen-validate's); Keel validates with protovalidate rules only. The error is what kratos returns:
+// 400, reason VALIDATOR, the protovalidate text (field path and rule) as the message, the original error as the cause.
+// The message is for developers: clients check input before sending it.
 func validateMiddleware(fn func(any) error) Middleware {
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req any) (any, error) {
-			var err error
-			if v, ok := req.(interface{ Validate() error }); ok {
-				err = v.Validate()
-			}
-			if err == nil {
-				err = fn(req)
-			}
-			if err != nil {
-				msg := validateMessages[validateFamily(err)][validateLang(metadata.GetAcceptLanguage(ctx))]
-				return nil, kerrors.BadRequest("VALIDATOR", msg).WithCause(err)
+			if err := fn(req); err != nil {
+				return nil, kerrors.BadRequest("VALIDATOR", err.Error()).WithCause(err)
 			}
 			return handler(ctx, req)
 		}
