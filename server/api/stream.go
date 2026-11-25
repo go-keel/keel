@@ -1,7 +1,7 @@
 package api
 
-// Tools for type 2 (raw http.Handler, bypassing the middleware chain):
-// SSE / file download / WebSocket. Used together with StreamContext.
+// Tools for raw routes (plain http.Handler, bypassing the middleware chain):
+// SSE / file download / WebSocket. Register them through StreamContext.
 
 import (
 	"context"
@@ -247,7 +247,8 @@ type WSOptions struct {
 }
 
 // WebSocketHandler adapts a WebSocket session function into a raw http.HandlerFunc
-// (path 3: bypasses the unary middleware chain; wrap it with StreamContext.Auth when authentication is needed).
+// (it bypasses the middleware chain; register it through StreamContext.RequireLogin() or StreamContext.Anonymous() so
+// authentication applies).
 //
 // Contract bidirectional streams should prefer proto bidi-stream RPCs (kratos-generated stubs map them to WebSocket
 // automatically and run the full middleware chain); this helper is for free-form frames

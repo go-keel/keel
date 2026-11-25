@@ -19,38 +19,6 @@ import (
 	"github.com/go-keel/keel/pkg/rule"
 )
 
-// Only one instance holds the lease; renewal fails for the others, release by a non-holder is a no-op, and a release
-// by the holder lets another instance take it at once.
-func TestLease_OneHolder(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: integrationtest.Env(t, "TEST_REDIS_ADDR")})
-	t.Cleanup(func() { _ = rdb.Close() })
-	ctx := context.Background()
-	a := lease{rdb: rdb, key: fmt.Sprintf("it:%d:cron_scheduler", time.Now().UnixNano()), owner: "a"}
-	t.Cleanup(func() { rdb.Del(context.Background(), a.key) })
-	b := lease{rdb: rdb, key: a.key, owner: "b"}
-
-	if ok, err := a.acquire(ctx); !ok || err != nil {
-		t.Fatalf("a acquire = %v, %v; want true", ok, err)
-	}
-	if ok, err := b.acquire(ctx); ok || err != nil {
-		t.Fatalf("b acquire = %v, %v; want false while a holds it", ok, err)
-	}
-	if ok, err := a.renew(ctx); !ok || err != nil {
-		t.Fatalf("a renew = %v, %v; want true", ok, err)
-	}
-	if ok, err := b.renew(ctx); ok || err != nil {
-		t.Fatalf("b renew = %v, %v; want false, it does not hold the lease", ok, err)
-	}
-	b.release()
-	if got, _ := rdb.Get(ctx, a.key).Result(); got != "a" {
-		t.Fatalf("release by a non-holder deleted the lease (holder now %q)", got)
-	}
-	a.release()
-	if ok, err := b.acquire(ctx); !ok || err != nil {
-		t.Fatalf("b acquire after release = %v, %v; want true", ok, err)
-	}
-}
-
 func leaseRedis(t *testing.T) *redis.Client {
 	t.Helper()
 	rdb := redis.NewClient(&redis.Options{Addr: integrationtest.Env(t, "TEST_REDIS_ADDR")})

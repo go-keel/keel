@@ -210,7 +210,7 @@ message Database {
     ]
   }];
   string source = 2 [(buf.validate.field).required = true];
-  // Connection pool limits, default 100 / 10. 0 and omission use the default; negative values are treated as unset.
+  // Connection pool limits, default 100 / 10. 0 and omission use the default; negative values fail startup.
   int32 max_open = 3 [(buf.validate.field).int32.gte = 0]; // Maximum number of open connections to the database
   int32 max_idle = 4 [(buf.validate.field).int32.gte = 0]; // Maximum number of idle connections to the database
   // Maximum lifetime of a connection, default 5 minutes. 0 and omission use the default; negative values fail startup.

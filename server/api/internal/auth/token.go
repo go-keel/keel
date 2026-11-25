@@ -55,27 +55,12 @@ func bearerFromHeader(v string) (string, bool) {
 	return token, true
 }
 
-// verifyFromTransport is for contract endpoints (unary/stream establishment): it gets the token and verifies it. The
-// returned error is normalised to one of ErrMissingJwtToken / ErrInvalidToken; the specific verification failure
-// (bad signature, expired, wrong algorithm...) does not leak.
-func verifyFromTransport(tr transport.Transporter, verifier jwt.Verifier, cookieName string) (jwtv5.MapClaims, error) {
-	token, err := extractToken(tr, cookieName)
-	if err != nil {
-		return nil, err
-	}
-	claims, err := verifier.Verify(token)
-	if err != nil {
-		return nil, keelauth.ErrInvalidToken
-	}
-	return claims, nil
-}
-
-// verifyFromRequest is for raw routes: same semantics as verifyFromTransport, but it reads from *http.Request rather
-// than transport.Transporter, because raw routes are not on the middleware chain and have no transport.Transporter.
-func verifyFromRequest(r *http.Request, verifier jwt.Verifier, cookieName string) (jwtv5.MapClaims, error) {
-	token, err := tokenFromRequest(r, cookieName)
-	if err != nil {
-		return nil, err
+// verify finishes what extractToken (contract endpoints) and tokenFromRequest (raw routes) start: it passes an
+// extraction error through and verifies the token. The returned error is one of ErrMissingJwtToken / ErrInvalidToken;
+// the specific verification failure (bad signature, expired, wrong algorithm...) does not leak.
+func verify(verifier jwt.Verifier, token string, extractErr error) (jwtv5.MapClaims, error) {
+	if extractErr != nil {
+		return nil, extractErr
 	}
 	claims, err := verifier.Verify(token)
 	if err != nil {

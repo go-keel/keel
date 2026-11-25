@@ -13,13 +13,13 @@ import (
 	keelpb "github.com/go-keel/keel/proto/keel/v1"
 )
 
-var getGlobalOperationWhiteList = sync.OnceValue(func() *OperationWhiteList { return newOperationWhiteList() })
+var getGlobalOperationWhiteList = sync.OnceValue(func() *operationWhiteList { return newOperationWhiteList() })
 
-type OperationWhiteList struct {
+type operationWhiteList struct {
 	operations map[string]struct{}
 }
 
-func (l *OperationWhiteList) Contains(operation string) bool {
+func (l *operationWhiteList) Contains(operation string) bool {
 	if operation == "" {
 		return false
 	}
@@ -27,7 +27,7 @@ func (l *OperationWhiteList) Contains(operation string) bool {
 	return exists
 }
 
-func newOperationWhiteList() *OperationWhiteList {
+func newOperationWhiteList() *operationWhiteList {
 	allowAnonymousOperations := make(map[string]struct{})
 
 	files := protoregistry.GlobalFiles
@@ -46,8 +46,7 @@ func newOperationWhiteList() *OperationWhiteList {
 				opts := method.Options().(*descriptorpb.MethodOptions)
 				authRule := proto.GetExtension(opts, keelpb.E_Auth).(*keelpb.AuthRule)
 				if authRule != nil && authRule.AllowAnonymous {
-					operation, _, _ := parseFullMethodToOperation(method.FullName())
-					allowAnonymousOperations[operation] = struct{}{}
+					allowAnonymousOperations[parseFullMethodToOperation(method.FullName())] = struct{}{}
 				}
 
 			}
@@ -56,24 +55,18 @@ func newOperationWhiteList() *OperationWhiteList {
 		return true
 	})
 
-	return &OperationWhiteList{
+	return &operationWhiteList{
 		operations: allowAnonymousOperations,
 	}
 }
 
-func parseFullMethodToOperation(fullName protoreflect.FullName) (operation string, service string, method string) {
-	// "api.template.v1.Example.CreateExample"
+// parseFullMethodToOperation turns "api.template.v1.Example.CreateExample" into the kratos operation
+// "/api.template.v1.Example/CreateExample"; a name without a dot yields "".
+func parseFullMethodToOperation(fullName protoreflect.FullName) string {
 	name := string(fullName)
 	index := strings.LastIndex(name, ".")
 	if index < 0 {
-		return "", "", ""
+		return ""
 	}
-
-	// api.template.v1.Example
-	service = name[:index]
-	// CreateExample
-	method = name[index+1:]
-	// /api.template.v1.Example/CreateExample
-	operation = fmt.Sprintf("/%s/%s", service, method)
-	return
+	return fmt.Sprintf("/%s/%s", name[:index], name[index+1:])
 }

@@ -512,7 +512,7 @@ type Database struct {
 	// Keel is bound to gorm; the only dialects are mysql and postgres (pgx is an alias of postgres).
 	Driver string `protobuf:"bytes,1,opt,name=driver,proto3" json:"driver,omitempty"`
 	Source string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
-	// Connection pool limits, default 100 / 10. 0 and omission use the default; negative values are treated as unset.
+	// Connection pool limits, default 100 / 10. 0 and omission use the default; negative values fail startup.
 	MaxOpen int32 `protobuf:"varint,3,opt,name=max_open,json=maxOpen,proto3" json:"max_open,omitempty"` // Maximum number of open connections to the database
 	MaxIdle int32 `protobuf:"varint,4,opt,name=max_idle,json=maxIdle,proto3" json:"max_idle,omitempty"` // Maximum number of idle connections to the database
 	// Maximum lifetime of a connection, default 5 minutes. 0 and omission use the default; negative values fail startup.

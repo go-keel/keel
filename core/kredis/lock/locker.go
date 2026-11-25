@@ -2,15 +2,16 @@ package lock
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/go-keel/keel/internal/errs"
+	"github.com/go-keel/keel/internal/redislease"
 )
 
 var ErrLockNotAcquired = errors.New("lock not acquired")
@@ -51,7 +52,7 @@ func (r *redisLocker) TryAcquireLock(ctx context.Context, key string, ttlSec int
 	if ttlSec <= 0 {
 		return nil, errs.Rules.New("kredis.lock-ttl", fmt.Sprintf("TryAcquireLock was called with ttlSec %d", ttlSec), "pass a positive ttlSec so a crashed holder's lock expires")
 	}
-	token := uuid.NewString()
+	token := rand.Text()
 	ok, err := r.rdb.SetNX(ctx, key, token, time.Duration(ttlSec)*time.Second).Result()
 	if err != nil {
 		return nil, err
@@ -99,25 +100,12 @@ func (r *redisLocker) TryAcquireLockWithTimeout(ctx context.Context, key string,
 	}
 }
 
-var releaseScript = redis.NewScript(`
-if redis.call("get", KEYS[1]) == ARGV[1] then
-	return redis.call("del", KEYS[1])
-else
-	return 0
-end
-`)
-
 func (r *redisLocker) releaseLock(key string, token string) error {
-	// release uses a separate background ctx with a short timeout: the caller's ctx may already be canceled, but
-	// the lock must still be released, otherwise it is only returned when the TTL expires.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	result, err := releaseScript.Run(ctx, r.rdb, []string{key}, token).Int64()
-	if err != nil {
-		return err
-	}
-	if result == 0 {
+	// Release runs on its own short timeout: the caller's ctx may already be canceled, but the lock must still be
+	// released, otherwise it is only returned when the TTL expires.
+	err := redislease.Release(r.rdb, key, token)
+	if errors.Is(err, redislease.ErrNotHeld) {
 		return ErrLockNotHeld
 	}
-	return nil
+	return err
 }

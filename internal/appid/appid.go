@@ -10,7 +10,6 @@ package appid
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -49,7 +48,5 @@ func InstanceID(app *conf.App) string {
 // call. The instance ID alone is not unique: replicas on one host share the hostname, and a holder that paused past
 // the lease TTL would then renew a lease another replica had taken in the meantime, so both would act as holder.
 func LeaseOwner(app *conf.App) string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b) // crypto/rand.Read never returns an error on supported platforms
-	return InstanceID(app) + "/" + hex.EncodeToString(b)
+	return InstanceID(app) + "/" + rand.Text()
 }

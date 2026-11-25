@@ -16,6 +16,7 @@ import (
 	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/appid"
 	"github.com/go-keel/keel/internal/errs"
+	"github.com/go-keel/keel/internal/redislease"
 )
 
 // SchedulerSetup registers cron tasks into a SchedulerServer. It returns no error: Register failures are recorded on
@@ -97,7 +98,6 @@ func NewSchedulerServer(config *kconfig.Config, rdb redis.UniversalClient, setup
 		rdb:       rdb,
 		scheduler: scheduler,
 		lease: lease{
-			rdb:   rdb,
 			key:   fmt.Sprintf("%s:%s:cron_scheduler", domain, config.App.GetName()),
 			owner: appid.LeaseOwner(config.App),
 		},
@@ -126,15 +126,15 @@ func (s *SchedulerServer) Start(ctx context.Context) error {
 	if err := checkEvictionPolicy(ctx, s.rdb); err != nil {
 		return err
 	}
-	tick := time.NewTicker(leaseEvery)
+	tick := time.NewTicker(redislease.Every)
 	defer tick.Stop()
 	for {
-		ok, err := s.lease.acquire(ctx)
-		if err != nil {
-			slog.Error("cron scheduler could not try the lease; retrying in 10s", "key", s.lease.key, "error", err)
-		}
-		if ok {
+		err := redislease.Acquire(ctx, s.rdb, s.lease.key, s.lease.owner)
+		if err == nil {
 			break
+		}
+		if !errors.Is(err, redislease.ErrNotHeld) {
+			slog.Error("cron scheduler could not try the lease; retrying in 10s", "key", s.lease.key, "error", err)
 		}
 		select {
 		case <-s.stop:
@@ -148,12 +148,12 @@ func (s *SchedulerServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopping {
 		s.mu.Unlock()
-		s.lease.release()
+		s.releaseLease()
 		return nil
 	}
 	if err := s.scheduler.Start(); err != nil {
 		s.mu.Unlock()
-		s.lease.release()
+		s.releaseLease()
 		return err
 	}
 	s.running = true
@@ -169,12 +169,12 @@ func (s *SchedulerServer) Start(ctx context.Context) error {
 			return nil
 		case <-tick.C:
 		}
-		ok, err := s.lease.renew(ctx)
+		err := redislease.Renew(ctx, s.rdb, s.lease.key, s.lease.owner)
 		switch {
-		case err == nil && ok:
+		case err == nil:
 			lastRenew = time.Now()
 			continue
-		case err != nil && time.Since(lastRenew) < leaseStopAfter:
+		case !errors.Is(err, redislease.ErrNotHeld) && time.Since(lastRenew) < redislease.StopAfter:
 			slog.Error("cron scheduler lease renewal failed; scheduling stops after 20s without renewal", "key", s.lease.key, "error", err)
 			continue
 		}
@@ -212,7 +212,7 @@ func (s *SchedulerServer) Stop(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	s.lease.release()
+	s.releaseLease()
 	return nil
 }
 

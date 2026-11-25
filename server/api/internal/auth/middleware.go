@@ -24,10 +24,11 @@ func ServerMiddleware(verifier jwt.Verifier, opts ...Option) middleware.Middlewa
 				return nil, keelauth.ErrWrongContext
 			}
 
-			claims, verr := verifyFromTransport(serverContext, verifier, o.cookieName)
+			token, verr := extractToken(serverContext, o.cookieName)
+			claims, verr := verify(verifier, token, verr)
 
 			// Endpoints that do not allow anonymous access return an authentication failure. verr is already one of
-			// ErrMissingJwtToken or ErrInvalidToken (verifyFromTransport decides directly by the failing step,
+			// ErrMissingJwtToken or ErrInvalidToken (verify decides directly by the failing step,
 			// extracting the token or verifying the signature, so pass it through as is); do not infer it here with
 			// errors.Is(verr, ErrMissingJwtToken): the two error values share Code/Reason
 			// (both 401/UNAUTHORIZED, only Message differs), and kratos's

@@ -22,7 +22,8 @@ func Filter(verifier jwt.Verifier, required bool, opts ...Option) func(http.Hand
 	o := newOptions(opts...)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, err := verifyFromRequest(r, verifier, o.cookieName)
+			token, err := tokenFromRequest(r, o.cookieName)
+			claims, err := verify(verifier, token, err)
 			if err != nil {
 				if !required {
 					next.ServeHTTP(w, r)

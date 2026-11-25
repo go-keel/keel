@@ -25,17 +25,14 @@ import (
 	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/appid"
 	"github.com/go-keel/keel/internal/errs"
+	"github.com/go-keel/keel/internal/redislease"
 )
 
-// The lease timings are fixed, not config: issuing must stop before the lease can expire (stopAfter < leaseTTL), and
-// a configurable pair could be set the other way round.
+// The lease timings (renew every 10s, 30s TTL, stop issuing after 20s) are shared with kasynq's scheduler lease in
+// internal/redislease.
 const (
 	maxNodeID       = 1023
-	leaseTTL        = 30 * time.Second
-	renewEvery      = 10 * time.Second
-	stopAfter       = 20 * time.Second // two missed renewals; 10s margin for network delay and clock drift
 	allocateTimeout = 15 * time.Second
-	releaseTimeout  = 3 * time.Second
 )
 
 var (
@@ -44,8 +41,6 @@ var (
 	ErrLeaseExpired = errors.New("ksnowflake: node ID lease not confirmed; no IDs are issued until it is renewed")
 	// ErrNoAvailableNodeID is returned by NewAuto when all node IDs (0-1023) are leased.
 	ErrNoAvailableNodeID = errors.New("ksnowflake: all node IDs (0-1023) are leased")
-
-	errLeaseLost = errors.New("node ID lease belongs to another instance")
 )
 
 // ID is a snowflake ID. The bit widths and the epoch (2010-11-04) are bwmarrin/snowflake's defaults; the epoch only
@@ -137,7 +132,7 @@ func NewAuto(config *kconfig.Config, rdb redis.UniversalClient) (*Generator, fun
 func (g *Generator) Next() (ID, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.leased && (g.lost || g.now().Sub(g.lastRenew) >= stopAfter) {
+	if g.leased && (g.lost || g.now().Sub(g.lastRenew) >= redislease.StopAfter) {
 		return 0, ErrLeaseExpired
 	}
 	return ID(g.node.Generate()), nil
@@ -167,12 +162,12 @@ func (g *Generator) claim(ctx context.Context) error {
 		if cmds[id].Val() != 0 {
 			continue
 		}
-		ok, err := g.rdb.SetNX(ctx, g.key(id), g.instanceID, leaseTTL).Result()
+		err := redislease.Acquire(ctx, g.rdb, g.key(id), g.instanceID)
+		if errors.Is(err, redislease.ErrNotHeld) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("ksnowflake: lease node ID %d: %w", id, err)
-		}
-		if !ok {
-			continue
 		}
 		node, err := snowflake.NewNode(id)
 		if err != nil {
@@ -189,7 +184,7 @@ func (g *Generator) claim(ctx context.Context) error {
 
 func (g *Generator) renewLoop(ctx context.Context) {
 	defer close(g.done)
-	t := time.NewTicker(renewEvery)
+	t := time.NewTicker(redislease.Every)
 	defer t.Stop()
 	for {
 		select {
@@ -201,14 +196,7 @@ func (g *Generator) renewLoop(ctx context.Context) {
 	}
 }
 
-var renewScript = redis.NewScript(`
-if redis.call("get", KEYS[1]) == ARGV[1] then
-	return redis.call("expire", KEYS[1], ARGV[2])
-end
-return 0
-`)
-
-// renew extends the lease. A transient failure only logs (Next stops issuing by itself after stopAfter); a lease held
+// renew extends the lease. A transient failure only logs (Next stops issuing by itself after 20s); a lease held
 // by another instance stops issuing at once and claims a new node ID.
 func (g *Generator) renew(ctx context.Context) {
 	g.mu.Lock()
@@ -216,33 +204,26 @@ func (g *Generator) renew(ctx context.Context) {
 	g.mu.Unlock()
 
 	if !lost {
-		res, err := renewScript.Run(ctx, g.rdb, []string{g.key(id)}, g.instanceID, int(leaseTTL.Seconds())).Int64()
+		err := redislease.Renew(ctx, g.rdb, g.key(id), g.instanceID)
 		switch {
-		case err != nil:
-			slog.Error("snowflake node ID renewal failed; IDs stop after 20s without renewal", "node_id", id, "error", err)
-			return
-		case res == 1:
+		case err == nil:
 			g.mu.Lock()
 			g.lastRenew = g.now()
 			g.mu.Unlock()
+			return
+		case !errors.Is(err, redislease.ErrNotHeld):
+			slog.Error("snowflake node ID renewal failed; IDs stop after 20s without renewal", "node_id", id, "error", err)
 			return
 		}
 		g.mu.Lock()
 		g.lost = true
 		g.mu.Unlock()
-		slog.Warn("snowflake node ID lease taken by another instance; claiming a new one", "node_id", id, "error", errLeaseLost)
+		slog.Warn("snowflake node ID lease taken by another instance; claiming a new one", "node_id", id, "error", err)
 	}
 	if err := g.claim(ctx); err != nil {
 		slog.Error("snowflake node ID could not be claimed; no IDs are issued until one is", "error", err)
 	}
 }
-
-var releaseScript = redis.NewScript(`
-if redis.call("get", KEYS[1]) == ARGV[1] then
-	return redis.call("del", KEYS[1])
-end
-return 0
-`)
 
 // release stops renewal and deletes the lease if this instance still owns it.
 func (g *Generator) release() {
@@ -251,9 +232,7 @@ func (g *Generator) release() {
 	g.mu.Lock()
 	id := g.nodeID
 	g.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
-	defer cancel()
-	if _, err := releaseScript.Run(ctx, g.rdb, []string{g.key(id)}, g.instanceID).Int64(); err != nil {
+	if err := redislease.Release(g.rdb, g.key(id), g.instanceID); err != nil && !errors.Is(err, redislease.ErrNotHeld) {
 		slog.Error("snowflake node ID release failed; it expires within 30s", "node_id", id, "error", err)
 	}
 }

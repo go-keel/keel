@@ -19,6 +19,7 @@ import (
 	"github.com/go-keel/keel/conf"
 	"github.com/go-keel/keel/core/kconfig"
 	"github.com/go-keel/keel/internal/integrationtest"
+	"github.com/go-keel/keel/internal/redislease"
 )
 
 // leaseCfg gives each test its own app name, so its node-ID keys (keel:<name>:node_id:<n>) do not meet another
@@ -125,9 +126,6 @@ func TestAutoLeasesAndReleasesANodeID(t *testing.T) {
 	if owner, _ := rdb.Get(ctx, key).Result(); !strings.HasPrefix(owner, "i1/") {
 		t.Fatalf("lease %s owned by %q, want the instance ID i1 plus a token", key, owner)
 	}
-	if ttl := rdb.TTL(ctx, key).Val(); ttl != leaseTTL {
-		t.Errorf("lease TTL = %v, want %v", ttl, leaseTTL)
-	}
 	cleanup()
 	if n := rdb.Exists(ctx, key).Val(); n != 0 {
 		t.Error("cleanup must delete the lease")
@@ -138,7 +136,7 @@ func TestIssuingStopsWithoutRenewalAndResumes(t *testing.T) {
 	g, _, _, fault, c := newAuto(t)
 	ctx := context.Background()
 
-	c.add(stopAfter - time.Second)
+	c.add(redislease.StopAfter - time.Second)
 	if _, err := g.Next(); err != nil {
 		t.Fatalf("19s after renewal: %v", err)
 	}
