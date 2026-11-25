@@ -76,19 +76,20 @@ memory until Redis rejects writes, including enqueues.
 
 ## Distributed lock
 
-`lock.NewLocker(rdb)` takes a lock with `SET key <token> NX EX <ttlSec>`: `NX` makes acquisition atomic and `EX` releases
-the lock when the TTL ends without any cleanup process. The token is a random UUID only the holder knows, and release
+`lock.NewLocker(rdb)` takes a lock with `SET key <token> NX PX <ttl>`: `NX` makes acquisition atomic and `PX` releases
+the lock when the TTL ends without any cleanup process. The token is a random string only the holder knows, and release
 is an atomic "delete only if the token matches", so when A's lock expires and B takes it, A's late release cannot
 delete B's lock.
 
-**Finish the locked work within `ttlSec`.** The lock is not renewed (no watchdog): when the TTL ends any instance can
-take it, and work that runs over means two processes inside the critical section at once. Size `ttlSec` for the worst
-case, generously. Renewal is left out on purpose: a watchdog must handle failed renewals, clock drift and GC pauses,
-and its failure mode ("I think I hold it, but I lost it") is harder to diagnose than a TTL sized to the constraint.
+**Finish the locked work within `ttl`.** The lock is not renewed (no watchdog): when the TTL ends any instance can
+take it, and work that runs over means two processes inside the critical section at once. Size `ttl` for the worst
+case, generously; it is a `time.Duration`, and anything under 1ms is rejected (`kredis.lock-ttl`). Renewal is left
+out on purpose: a watchdog must handle failed renewals, clock drift and GC pauses, and its failure mode ("I think I
+hold it, but I lost it") is harder to diagnose than a TTL sized to the constraint.
 For long transactions use a database row lock or a business idempotency key instead.
 
 ```go
-unlock, err := uc.locker.TryAcquireLock(ctx, "note:publish:"+noteID, 30)
+unlock, err := uc.locker.TryAcquireLock(ctx, "note:publish:"+noteID, 30*time.Second)
 if err != nil {
     return err // lock.ErrLockNotAcquired: someone else is handling this note
 }

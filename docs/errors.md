@@ -121,10 +121,11 @@ Fix: add `redis: {<name>: {addr: [...]}}` to the config, or pass the name that a
 
 ## kredis.lock-ttl
 
-`TryAcquireLock` was called with a `ttlSec` of zero or less. Without a TTL the lock never expires, so a holder that
-crashes keeps it forever.
+`TryAcquireLock` was called with a `ttl` under 1ms. Zero or less sets no expiry, so a holder that crashes keeps the
+lock forever; a bare integer such as `30` is 30 nanoseconds, a lock that is gone before the work starts.
 
-Fix: pass a positive `ttlSec`, longer than the work the lock protects. See [the Redis component](redis.md).
+Fix: pass a `time.Duration` longer than the work the lock protects, such as `30*time.Second`. See
+[the Redis component](redis.md).
 
 ## kredis.ratelimit-bucket
 
@@ -393,6 +394,13 @@ Fix: pass the bundle built by `locale.NewBundle` from a loaded `i18n.Bundle`, or
 
 Fix: pass a group built with `sentinel.NewGroup`, or drop the `WithSentinel` call. See
 [middleware chains](middleware.md).
+
+## metadata.key-prefix
+
+`metadata.Set` was called with a key that does not start with `x-keel-`. `metadata.Client()` passes on only
+`x-keel-*` keys, so any other key would stop at this service without a sign.
+
+Fix: name the key `x-keel-<name>`, such as `x-keel-notebook-id`. See [metadata](metadata.md#your-own-x-keel-keys).
 
 ## sentinel.rule-invalid
 

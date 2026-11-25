@@ -6,8 +6,8 @@ or passing your own `x-keel-*` values between services.
 The metadata slot of `mw.Default` reads request metadata into the context and `metadata.Client()` (in
 `mw.ClientDefault`) passes every `x-keel-*` key on to the next service. Two keys are set by Keel: `x-keel-accept-language`
 (the inbound value, else the Accept-Language header) and `x-keel-remote-address` (the client IP). Read them with
-`metadata.GetAcceptLanguage(ctx)` and `metadata.GetRemoteIP(ctx)`, and the whole set with
-`metadata.FromServerContext(ctx)`.
+`metadata.GetAcceptLanguage(ctx)` and `metadata.GetRemoteIP(ctx)`, any other key with `metadata.Get(ctx, key)`, and add
+your own with `metadata.Set`. These four are the whole API; do not reach for Kratos's `metadata` package directly.
 
 ## Trust model
 
@@ -103,17 +103,19 @@ authentication and read downstream. Write them unconditionally, never only when 
 survives is carried by `metadata.Client()` to every later hop, where it cannot be told apart from one the entry wrote.
 
 ```go
-md, _ := kmd.FromServerContext(ctx) // github.com/go-kratos/kratos/v3/metadata
-md.Set("x-keel-notebook-id", notebookID) // set after authentication, always overwrite
+// set after authentication, always overwrite; calls made with the returned ctx carry it
+ctx, err := metadata.Set(ctx, "x-keel-notebook-id", notebookID)
+if err != nil {
+	return nil, err // keel/metadata.key-prefix: the key must start with x-keel-
+}
 ```
 
 ```go
-md, ok := metadata.FromServerContext(ctx)
-if ok {
-	notebookID := md.Get("x-keel-notebook-id")
-	_ = notebookID
-}
+notebookID := metadata.Get(ctx, "x-keel-notebook-id") // "" when absent
 ```
+
+`Set` copies the metadata into a new ctx rather than changing it in place, so keep using the ctx it returns. In a
+test, `Set` on `context.Background()` builds the metadata a request through the chain would have.
 
 The HTTP client does not pass `x-keel-*` on: the prefix is a convention between services, and internal calls use
 gRPC ([HTTP client](http-client.md)).

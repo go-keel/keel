@@ -25,7 +25,7 @@ func newClient(t *testing.T) *redis.Client {
 	return rdb
 }
 
-func newLocker(t *testing.T) lock.Locker {
+func newLocker(t *testing.T) *lock.Locker {
 	t.Helper()
 	return lock.NewLocker(newClient(t))
 }
@@ -40,17 +40,17 @@ func TestTryAcquireLock_AcquireAndRelease(t *testing.T) {
 	ctx := context.Background()
 	k := testKey(t)
 
-	release, err := l.TryAcquireLock(ctx, k, 30)
+	release, err := l.TryAcquireLock(ctx, k, 30*time.Second)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
 	// Acquiring again while held fails.
-	if _, err := l.TryAcquireLock(ctx, k, 30); !errors.Is(err, lock.ErrLockNotAcquired) {
+	if _, err := l.TryAcquireLock(ctx, k, 30*time.Second); !errors.Is(err, lock.ErrLockNotAcquired) {
 		t.Errorf("second acquire should fail with ErrLockNotAcquired, got %v", err)
 	}
 	// After release it can be acquired again.
 	release()
-	release2, err := l.TryAcquireLock(ctx, k, 30)
+	release2, err := l.TryAcquireLock(ctx, k, 30*time.Second)
 	if err != nil {
 		t.Errorf("acquire after release should succeed: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestTryAcquireLockWithTimeout_RespectsCtxCancel(t *testing.T) {
 	l := lock.NewLocker(rdb)
 	k := testKey(t)
 	// Hold the lock first so the retry-with-timeout enters its wait loop.
-	hold, err := l.TryAcquireLock(context.Background(), k, 30)
+	hold, err := l.TryAcquireLock(context.Background(), k, 30*time.Second)
 	if err != nil {
 		t.Fatalf("prime hold: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestTryAcquireLockWithTimeout_RespectsCtxCancel(t *testing.T) {
 
 	start := time.Now()
 	// timeout is 10s but ctx is canceled after the first attempt: it should return right away, long before 10s.
-	_, err = l.TryAcquireLockWithTimeout(ctx, k, 30, 10*time.Second)
+	_, err = l.TryAcquireLockWithTimeout(ctx, k, 30*time.Second, 10*time.Second)
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, context.Canceled) {
@@ -89,11 +89,11 @@ func TestTryAcquireLockWithTimeout_RespectsCtxCancel(t *testing.T) {
 func TestTryAcquireLockWithTimeout_Timeout(t *testing.T) {
 	l := newLocker(t)
 	k := testKey(t)
-	hold, _ := l.TryAcquireLock(context.Background(), k, 30)
+	hold, _ := l.TryAcquireLock(context.Background(), k, 30*time.Second)
 	defer hold()
 
 	start := time.Now()
-	_, err := l.TryAcquireLockWithTimeout(context.Background(), k, 30, 300*time.Millisecond)
+	_, err := l.TryAcquireLockWithTimeout(context.Background(), k, 30*time.Second, 300*time.Millisecond)
 	if !errors.Is(err, lock.ErrLockNotAcquired) {
 		t.Errorf("expected ErrLockNotAcquired on timeout, got %v", err)
 	}
@@ -107,7 +107,7 @@ func TestTryAcquireLockWithTimeout_Timeout(t *testing.T) {
 // is required.
 func TestRelease_FailureIsLogged(t *testing.T) {
 	l := newLocker(t)
-	release, err := l.TryAcquireLock(context.Background(), testKey(t), 30)
+	release, err := l.TryAcquireLock(context.Background(), testKey(t), 30*time.Second)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}

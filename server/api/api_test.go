@@ -239,8 +239,7 @@ func startIPServer(t *testing.T, chain *mw.Chain, clientIP *conf.Server_ClientIP
 		r.GET("/md", func(ctx khttp.Context) error {
 			key := ctx.Query().Get("key")
 			return inChain(ctx, func(c context.Context) string {
-				md, _ := metadata.FromServerContext(c)
-				return metadata.GetAcceptLanguage(c) + "|" + md.Get(key)
+				return metadata.GetAcceptLanguage(c) + "|" + metadata.Get(c, key)
 			})
 		})
 	}, chain)
@@ -753,8 +752,7 @@ func callWho(t *testing.T, addr string, md ...string) string {
 
 // whoAmI reports what the chain put in the context: the client IP, a custom x-keel-* key and the language.
 func whoAmI(ctx context.Context) (string, error) {
-	md, _ := metadata.FromServerContext(ctx)
-	return metadata.GetRemoteIP(ctx) + "|" + md.Get("x-keel-e2e") + "|" + metadata.GetAcceptLanguage(ctx), nil
+	return metadata.GetRemoteIP(ctx) + "|" + metadata.Get(ctx, "x-keel-e2e") + "|" + metadata.GetAcceptLanguage(ctx), nil
 }
 
 // Over a real gRPC connection the default rule trusts only the local host: from the local host the incoming

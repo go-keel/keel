@@ -2,12 +2,16 @@ package metadata_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/go-keel/keel/internal/clientip"
 	"github.com/go-keel/keel/middleware/metadata"
+	"github.com/go-keel/keel/pkg/rule"
 	"github.com/go-kratos/kratos/v3/transport"
 	khttp "github.com/go-kratos/kratos/v3/transport/http"
 	"google.golang.org/grpc/peer"
@@ -168,5 +172,55 @@ func TestServer_AcceptLanguage(t *testing.T) {
 func TestGetRemoteIP_NoSource(t *testing.T) {
 	if got := metadata.GetRemoteIP(context.Background()); got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+// On a raw route the address comes from the step api.NewHTTPServer runs before routing. Set gives that ctx metadata of
+// its own, and the address must still be readable afterwards.
+func TestGetRemoteIP_RawRouteAfterSet(t *testing.T) {
+	res, err := clientip.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after string
+	h := res.Filter(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		before = metadata.GetRemoteIP(r.Context())
+		ctx, err := metadata.Set(r.Context(), "x-keel-notebook-id", "n1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		after = metadata.GetRemoteIP(ctx)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.7:1234"
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if before != "203.0.113.7" || after != before {
+		t.Fatalf("before Set %q, after Set %q, want 203.0.113.7 both times", before, after)
+	}
+}
+
+// Set copies the request's metadata into a new ctx: the old ctx keeps its value, the new one has both keys.
+func TestSet_CopiesMetadata(t *testing.T) {
+	base, err := metadata.Set(context.Background(), "x-keel-notebook-id", "n1")
+	if err != nil {
+		t.Fatalf("Set on an empty ctx: %v", err)
+	}
+	next, err := metadata.Set(base, "X-Keel-Tenant", "t1")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got := metadata.Get(next, "x-keel-notebook-id") + "|" + metadata.Get(next, "x-keel-tenant"); got != "n1|t1" {
+		t.Errorf("new ctx = %q, want n1|t1", got)
+	}
+	if got := metadata.Get(base, "x-keel-tenant"); got != "" {
+		t.Errorf("old ctx tenant = %q, want empty", got)
+	}
+}
+
+// Only x-keel-* keys are passed between services, so Set refuses any other key.
+func TestSet_RejectsKeyWithoutPrefix(t *testing.T) {
+	_, err := metadata.Set(context.Background(), "tenant", "t1")
+	if re, ok := errors.AsType[*rule.Error](err); !ok || re.ID != "metadata.key-prefix" {
+		t.Fatalf("err = %v, want metadata.key-prefix", err)
 	}
 }

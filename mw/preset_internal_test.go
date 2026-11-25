@@ -10,7 +10,6 @@ import (
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 	kerrors "github.com/go-kratos/kratos/v3/errors"
-	kmetadata "github.com/go-kratos/kratos/v3/metadata"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
 	"google.golang.org/protobuf/proto"
@@ -218,7 +217,9 @@ func runValidate(t *testing.T, lang string, r proto.Message) error {
 		func(ctx context.Context, req any) (any, error) { return "ok", nil })
 	ctx := context.Background()
 	if lang != "" {
-		ctx = kmetadata.NewServerContext(ctx, kmetadata.Metadata{metadata.KeyAcceptLanguage: []string{lang}})
+		if ctx, err = metadata.Set(ctx, metadata.KeyAcceptLanguage, lang); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_, err = h(ctx, r)
 	return err

@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/go-kratos/kratos/v3/metadata"
@@ -12,26 +13,14 @@ import (
 	"google.golang.org/grpc/peer"
 
 	"github.com/go-keel/keel/internal/clientip"
+	"github.com/go-keel/keel/internal/errs"
 )
 
+// KeyPrefix marks the metadata keys passed from service to service.
 const KeyPrefix = "x-keel-"
 
 const KeyAcceptLanguage = KeyPrefix + "accept-language"
 const KeyRemoteAddress = KeyPrefix + "remote-address"
-
-type Metadata metadata.Metadata
-
-func (m Metadata) AcceptLanguage() string {
-	return metadata.Metadata(m).Get(KeyAcceptLanguage)
-}
-
-func (m Metadata) RemoteAddress() string {
-	return metadata.Metadata(m).Get(KeyRemoteAddress)
-}
-
-func (m Metadata) Get(key string) string {
-	return metadata.Metadata(m).Get(key)
-}
 
 // ServerOption configures the Server middleware.
 type ServerOption func(*serverOptions)
@@ -115,32 +104,49 @@ func setRemoteAddress(ctx context.Context, md metadata.Metadata, tr transport.Tr
 	delete(md, strings.ToLower(KeyRemoteAddress))
 }
 
-func FromServerContext(ctx context.Context) (Metadata, bool) {
+// Get returns the value of key in the request's metadata, or "" when it is absent or ctx carries no metadata. Keys
+// are case-insensitive. Values under KeyPrefix other than the client IP come from the caller; see docs/metadata.md.
+func Get(ctx context.Context, key string) string {
 	md, ok := metadata.FromServerContext(ctx)
-	if !ok {
-		return nil, false
-	}
-	return Metadata(md), true
-}
-
-func GetAcceptLanguage(ctx context.Context) string {
-	md, ok := FromServerContext(ctx)
 	if !ok {
 		return ""
 	}
-	return md.AcceptLanguage()
+	return md.Get(key)
+}
+
+// Set returns a copy of ctx whose request metadata also holds key = value; the metadata ctx already carries is
+// copied, not modified, so callers holding the old ctx do not see the change. metadata.Client() passes the key on to
+// every later call made with the returned ctx. key must start with KeyPrefix, since only those keys are passed on.
+func Set(ctx context.Context, key, value string) (context.Context, error) {
+	if !strings.HasPrefix(strings.ToLower(key), KeyPrefix) {
+		return ctx, errs.Rules.New("metadata.key-prefix", fmt.Sprintf("metadata.Set was called with key %q", key), "use a key that starts with x-keel-, such as x-keel-notebook-id")
+	}
+	md, ok := metadata.FromServerContext(ctx)
+	if ok {
+		md = md.Clone()
+	} else {
+		md = metadata.New()
+	}
+	md.Set(key, value)
+	return metadata.NewServerContext(ctx, md), nil
+}
+
+// GetAcceptLanguage returns x-keel-accept-language: the language the caller sent, else the request's Accept-Language.
+func GetAcceptLanguage(ctx context.Context) string {
+	return Get(ctx, KeyAcceptLanguage)
 }
 
 // GetRemoteIP returns the client IP. Inside the middleware chain it reads x-keel-remote-address; outside the chain
 // (raw routes, filters mounted via StreamContext.Filter, passing r.Context()) it reads the value api.NewHTTPServer
-// computed before routing with this port's client_ip config. Outside the chain there is no incoming metadata, so
-// WithTrustIncoming has no effect and the value is always the one computed at this hop.
+// computed before routing with this port's client_ip config, also after Set has given that ctx metadata of its own.
+// Outside the chain there is no incoming metadata, so WithTrustIncoming has no effect and the value is always the one
+// computed at this hop.
 //
 // When neither is present it returns an empty string rather than computing with the default rule: the caller's port
 // may have a trusted list configured, and an address computed with the default rule would silently ignore it.
 func GetRemoteIP(ctx context.Context) string {
-	if md, ok := FromServerContext(ctx); ok {
-		return md.RemoteAddress()
+	if ip := Get(ctx, KeyRemoteAddress); ip != "" {
+		return ip
 	}
 	ip, _ := clientip.FromContext(ctx)
 	return ip
